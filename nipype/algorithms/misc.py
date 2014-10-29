@@ -1241,6 +1241,61 @@ class MergeROIs(BaseInterface):
         return outputs
 
 
+class PolyFitInputSpec(TraitedSpec):
+    in_file = File(exists=True, mandatory=True,
+                   desc='data to fit polynomial to')
+    in_mask = File(exists=True, desc='data mask')
+    degree = traits.Int(2, usedefault=True, desc='degree of polynomial')
+    mask_out = traits.Bool(False, usedefault=True, desc='mask output')
+    out_file = File('polyeval.nii.gz', usedefault=True,
+                    desc='output file name')
+
+
+class PolyFitOutputSpec(TraitedSpec):
+    out_file = File(
+        exists=True, desc='the polynomial evaluated at image\'s grid')
+
+
+class PolyFit(BaseInterface):
+
+    """
+    Fits a polynomial using least squares.
+
+    Example
+    -------
+
+    >>> from nipype.algorithms import misc
+    >>> fit = misc.PolyFit()
+    >>> fit.inputs.in_file = 'reference.nii'
+    >>> fit.inputs.in_mask = 'mask.nii'
+    >>> fit.run() # doctest: +SKIP
+
+    """
+    input_spec = PolyFitInputSpec
+    output_spec = PolyFitOutputSpec
+
+    def _run_interface(self, runtime):
+        nii = nb.load(self.inputs.in_file)
+
+        msk = None
+        if isdefined(self.inputs.in_mask):
+            msk = nb.load(self.inputs.in_mask).get_data()
+
+        fit = poly_fitting(nii.get_data(), mask=msk, affine=nii.get_affine(),
+                           degree=self.inputs.degree,
+                           out_masked=self.inputs.mask_out)
+
+        out_file = op.abspath(self.inputs.out_file)
+        nb.Nifti1Image(fit, nii.get_affine(), nii.get_header()).to_filename(
+            out_file)
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self.output_spec().get()
+        outputs['out_file'] = op.abspath(self.inputs.out_file)
+        return outputs
+
+
 def normalize_tpms(in_files, in_mask=None, out_files=[]):
     """
     Returns the input tissue probability maps (tpms, aka volume fractions)
@@ -1465,32 +1520,43 @@ def merge_rois(in_files, in_idxs, in_ref,
     return out_file
 
 
-def poly_fitting(data, mask, affine, degree=3):
+def poly_fitting(data, mask=None, affine=None, degree=2, out_masked=False):
     import numpy as np
+    from numpy.polynomial.polynomial import (polyvander3d,
+                                             polyval3d,
+                                             polygrid3d)
+    if mask is None:
+        mask = np.ones_like(data)
 
-    coords = np.meshgrid(np.arange(0., float(data.shape[0])),
-                         np.arange(0., float(data.shape[1])),
-                         np.arange(0., float(data.shape[2])))
-    coords = np.array(coords).reshape(3, -1)
+    if affine is None:
+        affine = np.eye(4)
 
-    x = coords[0, :]
-    y = coords[1, :]
-    z = coords[2, :]
-    v = data.reshape(-1)
+    data = data * mask
+    idxs = np.where(mask > 0)
+    v = data[idxs]
+    all_idx = np.array(idxs)
+    mskpad = np.lib.pad(
+        np.zeros_like(mask), (1, 1), 'constant', constant_values=(1, 1))
+    mskpad[mask > 0] = 0
+    eidxs = np.where(mskpad > 0)
+    all_idx = np.hstack((np.array(idxs), np.array(eidxs)))
+    v = np.hstack((v, np.zeros(len(mskpad[mskpad > 0].reshape(-1)))))
+    coords = affine[:3, :3].dot(all_idx)
+    A = polyvander3d(
+        coords[0, :], coords[1, :], coords[2, :], [degree] * 3)
+    coeffs = np.linalg.lstsq(A, v)[0]
 
-    Ax = np.vander(x, degree)
-    Ay = np.vander(y, degree)
-    Az = np.vander(z, degree)
-    A = np.hstack((Ax, Ay, Az))
-    coeffs, residuals, rank, sing_vals = np.linalg.lstsq(A, v)
-    xcoeffs = coeffs[0:degree]
-    ycoeffs = coeffs[degree:2 * degree]
-    zcoeffs = coeffs[2 * degree:3 * degree]
-    fx = np.poly1d(xcoeffs)
-    fy = np.poly1d(ycoeffs)
-    fz = np.poly1d(zcoeffs)
-    newdata = (fx(x) + fy(y) + fz(z)).reshape(data.shape)
+    # meshgrid indexes in a different way
+    grid = np.where(np.ones_like(data) > 0)
+    grid_coord = affine[:3, :3].dot(np.array(grid))
+    V = polyvander3d(
+        grid_coord[0, :], grid_coord[1, :], grid_coord[2, :], [degree] * 3)
+    newvalues = V.dot(coeffs)
+    newdata = np.zeros_like(data)
+    newdata[grid] = newvalues
 
+    if out_masked:
+        newdata = newdata * mask
     return newdata
 
 
