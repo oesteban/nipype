@@ -1522,9 +1522,8 @@ def merge_rois(in_files, in_idxs, in_ref,
 
 def poly_fitting(data, mask=None, affine=None, degree=2, out_masked=False):
     import numpy as np
-    from numpy.polynomial.polynomial import (polyvander3d,
-                                             polyval3d,
-                                             polygrid3d)
+    from numpy.polynomial.polynomial import polyvander3d
+
     if mask is None:
         mask = np.ones_like(data)
 
