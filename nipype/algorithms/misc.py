@@ -1527,6 +1527,8 @@ def poly_fitting(data, mask=None, affine=None, degree=2, out_masked=False):
     if mask is None:
         mask = np.ones_like(data)
 
+    imax = np.percentile(data[mask > 0], 85)
+
     if affine is None:
         affine = np.eye(4)
 
@@ -1553,6 +1555,9 @@ def poly_fitting(data, mask=None, affine=None, degree=2, out_masked=False):
     newvalues = V.dot(coeffs)
     newdata = np.zeros_like(data)
     newdata[grid] = newvalues
+
+    omax = np.percentile(newdata[mask > 0], 85)
+    newdata = newdata * imax / omax
 
     if out_masked:
         newdata = newdata * mask
