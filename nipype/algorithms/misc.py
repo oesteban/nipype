@@ -1249,11 +1249,15 @@ class PolyFitInputSpec(TraitedSpec):
     mask_out = traits.Bool(False, usedefault=True, desc='mask output')
     out_file = File('polyeval.nii.gz', usedefault=True,
                     desc='output file name')
+    res_file = File('residuals.nii.gz', usedefault=True,
+                    desc='write residual in this file')
 
 
 class PolyFitOutputSpec(TraitedSpec):
-    out_file = File(
-        exists=True, desc='the polynomial evaluated at image\'s grid')
+    out_file = File(exists=True,
+                    desc='the polynomial evaluated at image\'s grid')
+    res_file = File(exists=True,
+                    desc='resituals after fitting')
 
 
 class PolyFit(BaseInterface):
@@ -1281,18 +1285,30 @@ class PolyFit(BaseInterface):
         if isdefined(self.inputs.in_mask):
             msk = nb.load(self.inputs.in_mask).get_data()
 
-        fit = poly_fitting(nii.get_data(), mask=msk, affine=nii.get_affine(),
-                           degree=self.inputs.degree,
-                           out_masked=self.inputs.mask_out)
+        fit, res = poly_fitting(nii.get_data(), mask=msk,
+                                affine=nii.get_affine(),
+                                deg=self.inputs.degree,
+                                out_masked=self.inputs.mask_out)
 
         out_file = op.abspath(self.inputs.out_file)
         nb.Nifti1Image(fit, nii.get_affine(), nii.get_header()).to_filename(
             out_file)
+
+        self.residual = False
+        if res is not None:
+            res_file = op.abspath(self.inputs.res_file)
+            nb.Nifti1Image(res, nii.get_affine(),
+                           nii.get_header()).to_filename(res_file)
+            self.residual = True
+
         return runtime
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
         outputs['out_file'] = op.abspath(self.inputs.out_file)
+        if self.residual:
+            outputs['res_file'] = op.abspath(self.inputs.res_file)
+
         return outputs
 
 
@@ -1520,48 +1536,65 @@ def merge_rois(in_files, in_idxs, in_ref,
     return out_file
 
 
-def poly_fitting(data, mask=None, affine=None, degree=2, out_masked=False):
+def poly_fitting(data, mask=None, affine=None, deg=2,
+                 out_masked=False, rcond=None, pad=1):
     import numpy as np
-    from numpy.polynomial.polynomial import polyvander3d
+    from numpy.polynomial.polynomial import polyvander3d, polyval3d
+
+    order = int(deg) + 1
 
     if mask is None:
         mask = np.ones_like(data)
-
-    imax = np.percentile(data[mask > 0], 85)
+    mask[mask > 0.0] = 1.0
+    data = data * mask
 
     if affine is None:
         affine = np.eye(4)
+    newaff = affine.copy()
+    newaff[:, 3] = affine.dot(np.array([-1.0 * pad] * 3 + [1.0]))
 
-    data = data * mask
-    idxs = np.where(mask > 0)
-    v = data[idxs]
-    all_idx = np.array(idxs)
-    mskpad = np.lib.pad(
-        np.zeros_like(mask), (1, 1), 'constant', constant_values=(1, 1))
-    mskpad[mask > 0] = 0
-    eidxs = np.where(mskpad > 0)
-    all_idx = np.hstack((np.array(idxs), np.array(eidxs)))
-    v = np.hstack((v, np.zeros(len(mskpad[mskpad > 0].reshape(-1)))))
-    coords = affine[:3, :3].dot(all_idx)
-    A = polyvander3d(
-        coords[0, :], coords[1, :], coords[2, :], [degree] * 3)
-    coeffs = np.linalg.lstsq(A, v)[0]
+    mskpad = np.pad(mask, (pad, pad), 'constant',
+                    constant_values=1)
+    datpad = np.pad(data, (pad, pad), 'constant',
+                    constant_values=0)
+    padded = np.pad(np.ones_like(data), (pad, pad), 'constant',
+                    constant_values=0)
 
-    # meshgrid indexes in a different way
-    grid = np.where(np.ones_like(data) > 0)
-    grid_coord = affine[:3, :3].dot(np.array(grid))
-    V = polyvander3d(
-        grid_coord[0, :], grid_coord[1, :], grid_coord[2, :], [degree] * 3)
-    newvalues = V.dot(coeffs)
-    newdata = np.zeros_like(data)
-    newdata[grid] = newvalues
+    xyz = np.where(mskpad > 0)
+    rhs = datpad[xyz].astype(np.float32)
 
-    omax = np.percentile(newdata[mask > 0], 85)
-    newdata = newdata * imax / omax
+    # ijk = newaff.dot(np.array([col for col in xyz] + [[1] * len(xyz[0])],
+    #                           dtype=np.float32))
+    lhs = polyvander3d(xyz[0].astype(np.float32),
+                       xyz[1].astype(np.float32),
+                       xyz[2].astype(np.float32),
+                       [order] * 3).astype(np.float64)
+
+    c, resid, _, _ = np.linalg.lstsq(lhs, rhs)
+
+    import nibabel as nb
+    testdata = np.zeros_like(datpad)
+    testdata[xyz] = lhs.dot(c.flat)
+    nb.Nifti1Image(testdata, newaff, None).to_filename('test_polyeval.nii.gz')
+
+    grid = np.where(np.ones_like(mskpad) > 0)
+    # gijk = newaff.dot(np.array([col for col in grid] + [[1] * len(grid[0])],
+    #                            dtype=np.float32))
+    V = polyvander3d(grid[0].astype(np.float32),
+                     grid[1].astype(np.float32),
+                     grid[2].astype(np.float32),
+                     [order] * 3).astype(np.float64)
+    newvalues = V.dot(c.flat).reshape(mskpad.shape)
+    newdata = newvalues[pad:-1 - pad, pad:-1 - pad, pad:-1 - pad]
+
+    resdata = None
+    if resid.shape[0] > 0:
+        resdata = np.zeros_like(data)
+        resdata[idxs] = resid
 
     if out_masked:
         newdata = newdata * mask
-    return newdata
+    return newdata, resdata
 
 
 # Deprecated interfaces --------------------------------------------------
