@@ -1547,11 +1547,14 @@ def poly_fitting(data, mask=None, affine=None, deg=2,
         mask = np.ones_like(data)
     mask[mask > 0.0] = 1.0
     data = data * mask
+    dshape = data.shape
 
     if affine is None:
         affine = np.eye(4)
     newaff = affine.copy()
-    newaff[:, 3] = affine.dot(np.array([-1.0 * pad] * 3 + [1.0]))
+
+    if pad > 0:
+        newaff[:, 3] = affine.dot(np.array([-1.0 * pad] * 3 + [1.0]))
 
     mskpad = np.pad(mask, (pad, pad), 'constant',
                     constant_values=1)
@@ -1580,7 +1583,8 @@ def poly_fitting(data, mask=None, affine=None, deg=2,
                      grid[2].astype(np.float32),
                      [order] * 3).astype(np.float64)
     newvalues = V.dot(c.flat).reshape(mskpad.shape)
-    newdata = newvalues[pad:-1 - pad, pad:-1 - pad, pad:-1 - pad]
+    newdata = newvalues[pad:(pad + dshape[0]), pad:(pad + dshape[1]),
+                        pad:(pad + dshape[2])]
 
     resdata = None
     if resid.shape[0] > 0:
