@@ -1537,7 +1537,7 @@ def merge_rois(in_files, in_idxs, in_ref,
 
 
 def poly_fitting(data, mask=None, affine=None, deg=2,
-                 out_masked=False, rcond=None, pad=1):
+                 out_masked=False, rcond=None, pad=0):
     import numpy as np
     from numpy.polynomial.polynomial import polyvander3d, polyval3d
 
@@ -1571,11 +1571,6 @@ def poly_fitting(data, mask=None, affine=None, deg=2,
                        [order] * 3).astype(np.float64)
 
     c, resid, _, _ = np.linalg.lstsq(lhs, rhs)
-
-    import nibabel as nb
-    testdata = np.zeros_like(datpad)
-    testdata[xyz] = lhs.dot(c.flat)
-    nb.Nifti1Image(testdata, newaff, None).to_filename('test_polyeval.nii.gz')
 
     grid = np.where(np.ones_like(mskpad) > 0)
     # gijk = newaff.dot(np.array([col for col in grid] + [[1] * len(grid[0])],
