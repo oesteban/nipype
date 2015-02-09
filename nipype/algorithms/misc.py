@@ -1539,7 +1539,9 @@ def merge_rois(in_files, in_idxs, in_ref,
 def poly_fitting(data, mask=None, affine=None, deg=2,
                  out_masked=False, rcond=None, pad=0):
     import numpy as np
-    from numpy.polynomial.polynomial import polyvander3d, polyval3d
+    from numpy.polynomial.polynomial import polyvander3d
+    from numpy.polynomial.chebyshev import chebvander3d
+    from numpy.polynomial.legendre import legvander3d
 
     order = int(deg) + 1
 
@@ -1568,20 +1570,26 @@ def poly_fitting(data, mask=None, affine=None, deg=2,
 
     # ijk = newaff.dot(np.array([col for col in xyz] + [[1] * len(xyz[0])],
     #                           dtype=np.float32))
-    lhs = polyvander3d(xyz[0].astype(np.float32),
-                       xyz[1].astype(np.float32),
-                       xyz[2].astype(np.float32),
-                       [order] * 3).astype(np.float64)
+    lhs = legvander3d(xyz[0].astype(np.float32),
+                      xyz[1].astype(np.float32),
+                      xyz[2].astype(np.float32),
+                      [order] * 3).astype(np.float64)
+    lhs = np.fliplr(lhs)
 
     c, resid, _, _ = np.linalg.lstsq(lhs, rhs)
 
-    grid = np.where(np.ones_like(mskpad) > 0)
-    # gijk = newaff.dot(np.array([col for col in grid] + [[1] * len(grid[0])],
-    #                            dtype=np.float32))
-    V = polyvander3d(grid[0].astype(np.float32),
-                     grid[1].astype(np.float32),
-                     grid[2].astype(np.float32),
-                     [order] * 3).astype(np.float64)
+    if off == 'discard':
+        grid = np.where(np.ones_like(mskpad) > 0)
+        # gijk = newaff.dot(np.array([col for col in grid] + [[1] * len(grid[0])],
+        #                            dtype=np.float32))
+        V = legvander3d(grid[0].astype(np.float32),
+                        grid[1].astype(np.float32),
+                        grid[2].astype(np.float32),
+                        [order] * 3).astype(np.float64)
+        V = np.fliplr(V)
+    else:
+        V = lhs
+
     newvalues = V.dot(c.flat).reshape(mskpad.shape)
     newdata = newvalues[pad:(pad + dshape[0]), pad:(pad + dshape[1]),
                         pad:(pad + dshape[2])]
