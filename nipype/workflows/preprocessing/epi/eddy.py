@@ -85,7 +85,7 @@ head-motion correction)
         function=extract_bval), name='ExtractDWI')
     pick_dws.inputs.b = 'diff'
 
-    flirt = dwi_flirt(flirt_param=params, excl_nodiff=True)
+    flirt = firt_4d(flirt_param=params, excl_nodiff=True)
 
     mult = pe.MapNode(fsl.BinaryMaths(operation='mul'), name='ModulateDWIs',
                       iterfield=['in_file', 'operand_value'])

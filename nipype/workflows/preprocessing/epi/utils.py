@@ -131,8 +131,7 @@ def vsm2warp(name='Shiftmap2Warping'):
     ])
     return wf
 
-
-def dwi_flirt(name='DWICoregistration', excl_nodiff=False,
+def firt_4d(name='DWICoregistration', excl_nodiff=False,
               flirt_param={}):
     """
     Generates a workflow for linear registration of dwi volumes

@@ -11,6 +11,77 @@ from nipype.interfaces import ants
 from nipype.interfaces import fsl
 from .utils import *
 
+def hmc_ants(name='motion_correct'):
+    """
+    HMC stands for head-motion correction.
+
+    Example
+    -------
+
+    >>> from nipype.workflows.dmri.fsl.artifacts import hmc_pipeline
+    >>> hmc = hmc_pipeline()
+    >>> hmc.inputs.inputnode.in_file = 'diffusion.nii'
+    >>> hmc.inputs.inputnode.in_bvec = 'diffusion.bvec'
+    >>> hmc.inputs.inputnode.in_bval = 'diffusion.bval'
+    >>> hmc.inputs.inputnode.in_mask = 'mask.nii'
+    >>> hmc.run() # doctest: +SKIP
+
+    Inputs::
+
+        inputnode.in_file - input dwi file
+        inputnode.in_mask - weights mask of reference image (a file with data \
+range in [0.0, 1.0], indicating the weight of each voxel when computing the \
+metric.
+        inputnode.in_bvec - gradients file (b-vectors)
+        inputnode.ref_num (optional, default=0) index of the b0 volume that \
+should be taken as reference
+
+    Outputs::
+
+        outputnode.out_file - corrected dwi file
+        outputnode.out_bvec - rotated gradient vectors table
+        outputnode.out_xfms - list of transformation matrices
+
+    """
+
+    inputnode = pe.Node(niu.IdentityInterface(
+        fields=['in_file', 'ref_num', 'in_bvec', 'in_bval', 'in_mask']),
+        name='inputnode')
+    split = pe.Node(niu.Function(
+        output_names=['out_ref', 'out_mov', 'out_bval', 'volid'],
+        input_names=['in_file', 'in_bval', 'ref_num'], function=hmc_split),
+        name='SplitDWI')
+    reg = ants_4d(param=params)
+    insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
+                                  output_names=['out'], function=insert_mat),
+                     name='InsertRefmat')
+    rot_bvec = pe.Node(niu.Function(
+        function=rotate_bvecs, input_names=['in_bvec', 'in_matrix'],
+        output_names=['out_file']), name='Rotate_Bvec')
+    outputnode = pe.Node(niu.IdentityInterface(
+        fields=['out_file', 'out_bvec', 'out_xfms']), name='outputnode')
+
+    wf = pe.Workflow(name=name)
+    wf.connect([
+        (inputnode,     split,   [('in_file', 'in_file'),
+                                  ('in_bval', 'in_bval'),
+                                  ('ref_num', 'ref_num')]),
+        (inputnode,  reg,      [('in_mask', 'inputnode.ref_mask')]),
+        (split,      reg,      [('out_ref', 'inputnode.reference'),
+                                  ('out_mov', 'inputnode.in_file'),
+                                  ('out_bval', 'inputnode.in_bval')]),
+        (reg,      insmat,     [('outputnode.out_xfms', 'inlist')]),
+        (split,      insmat,     [('volid', 'volid')]),
+        (inputnode,  rot_bvec,   [('in_bvec', 'in_bvec')]),
+        (insmat,     rot_bvec,   [('out', 'in_matrix')]),
+        (rot_bvec,   outputnode, [('out_file', 'out_bvec')]),
+        (ants,      outputnode, [('outputnode.out_file', 'out_file')]),
+        (insmat,     outputnode, [('out', 'out_xfms')])
+    ])
+    return wf
+
+
+
 def hmc_flirt(name='motion_correct'):
     """
     HMC stands for head-motion correction.
@@ -89,7 +160,7 @@ should be taken as reference
         output_names=['out_ref', 'out_mov', 'out_bval', 'volid'],
         input_names=['in_file', 'in_bval', 'ref_num'], function=hmc_split),
         name='SplitDWI')
-    flirt = dwi_flirt(flirt_param=params)
+    flirt = firt_4d(flirt_param=params)
     insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
                                   output_names=['out'], function=insert_mat),
                      name='InsertRefmat')
@@ -117,4 +188,3 @@ should be taken as reference
         (insmat,     outputnode, [('out', 'out_xfms')])
     ])
     return wf
-
