@@ -14,6 +14,7 @@ def configuration(parent_package='',top_path=None):
     config.add_subpackage('rsfmri')
     config.add_subpackage('smri')
     config.add_subpackage('warp')
+    config.add_subpackage('preprocessing')
 
     return config
 
