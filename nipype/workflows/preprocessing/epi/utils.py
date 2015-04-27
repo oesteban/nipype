@@ -29,13 +29,6 @@ def _fix_enc_dir(enc_dir):
     return enc_dir
 
 
-def _checkrnum(ref_num):
-    from nipype.interfaces.base import isdefined
-    if (ref_num is None) or not isdefined(ref_num):
-        return 0
-    return ref_num
-
-
 def _nonb0(in_bval):
     import numpy as np
     bvals = np.loadtxt(in_bval)
@@ -63,76 +56,8 @@ def _get_zoom(in_file, enc_dir):
         raise ValueError('Wrong encoding direction string')
 
 
-
-def cleanup_edge_pipeline(name='Cleanup'):
-    """
-    Perform some de-spiking filtering to clean up the edge of the fieldmap
-    (copied from fsl_prepare_fieldmap)
-    """
-    inputnode = pe.Node(niu.IdentityInterface(fields=['in_file', 'in_mask']),
-                        name='inputnode')
-    outputnode = pe.Node(niu.IdentityInterface(fields=['out_file']),
-                         name='outputnode')
-
-    fugue = pe.Node(fsl.FUGUE(save_fmap=True, despike_2dfilter=True,
-                    despike_threshold=2.1), name='Despike')
-    erode = pe.Node(fsl.maths.MathsCommand(nan2zeros=True,
-                    args='-kernel 2D -ero'), name='MskErode')
-    newmsk = pe.Node(fsl.MultiImageMaths(op_string='-sub %s -thr 0.5 -bin'),
-                     name='NewMask')
-    applymsk = pe.Node(fsl.ApplyMask(nan2zeros=True), name='ApplyMask')
-    join = pe.Node(niu.Merge(2), name='Merge')
-    addedge = pe.Node(fsl.MultiImageMaths(op_string='-mas %s -add %s'),
-                      name='AddEdge')
-
-    wf = pe.Workflow(name=name)
-    wf.connect([
-        (inputnode,     fugue,      [('in_file', 'fmap_in_file'),
-                                     ('in_mask', 'mask_file')]),
-        (inputnode,     erode,      [('in_mask', 'in_file')]),
-        (inputnode,     newmsk,     [('in_mask', 'in_file')]),
-        (erode,         newmsk,     [('out_file', 'operand_files')]),
-        (fugue,         applymsk,   [('fmap_out_file', 'in_file')]),
-        (newmsk,        applymsk,   [('out_file', 'mask_file')]),
-        (erode,         join,       [('out_file', 'in1')]),
-        (applymsk,      join,       [('out_file', 'in2')]),
-        (inputnode,     addedge,    [('in_file', 'in_file')]),
-        (join,          addedge,    [('out', 'operand_files')]),
-        (addedge,       outputnode, [('out_file', 'out_file')])
-    ])
-    return wf
-
-
-def vsm2warp(name='Shiftmap2Warping'):
-    """
-    Converts a voxel shift map (vsm) to a displacements field (warp).
-    """
-    inputnode = pe.Node(niu.IdentityInterface(fields=['in_vsm',
-                        'in_ref', 'scaling', 'enc_dir']), name='inputnode')
-    outputnode = pe.Node(niu.IdentityInterface(fields=['out_warp']),
-                         name='outputnode')
-    fixhdr = pe.Node(niu.Function(input_names=['in_file', 'in_file_hdr'],
-                     output_names=['out_file'], function=copy_hdr),
-                     name='Fix_hdr')
-    vsm = pe.Node(fsl.maths.BinaryMaths(operation='mul'), name='ScaleField')
-    vsm2dfm = pe.Node(fsl.ConvertWarp(relwarp=True, out_relwarp=True),
-                      name='vsm2dfm')
-
-    wf = pe.Workflow(name=name)
-    wf.connect([
-        (inputnode,   fixhdr,      [('in_vsm', 'in_file'),
-                                    ('in_ref', 'in_file_hdr')]),
-        (inputnode,   vsm,         [('scaling', 'operand_value')]),
-        (fixhdr,      vsm,         [('out_file', 'in_file')]),
-        (vsm,         vsm2dfm,     [('out_file', 'shift_in_file')]),
-        (inputnode,   vsm2dfm,     [('in_ref', 'reference'),
-                                    ('enc_dir', 'shift_direction')]),
-        (vsm2dfm,     outputnode,  [('out_file', 'out_warp')])
-    ])
-    return wf
-
-def firt_4d(name='DWICoregistration', excl_nodiff=False,
-              flirt_param={}):
+def flirt_4d(name='DWICoregistration', excl_nodiff=False,
+             flirt_param={}):
     """
     Generates a workflow for linear registration of dwi volumes
     """
@@ -282,52 +207,6 @@ def extract_bval(in_dwi, in_bval, b=0, out_file=None):
     nb.Nifti1Image(extdata, im.get_affine(),
                    hdr).to_filename(out_file)
     return out_file
-
-
-def hmc_split(in_file, in_bval, ref_num=0, lowbval=5.0):
-    """
-    Selects the reference and moving volumes from a dwi dataset
-    for the purpose of HMC.
-    """
-    import numpy as np
-    import nibabel as nb
-    import os.path as op
-    from nipype.interfaces.base import isdefined
-
-    im = nb.load(in_file)
-    data = im.get_data()
-    hdr = im.get_header().copy()
-    bval = np.loadtxt(in_bval)
-
-    lowbs = np.where(bval <= lowbval)[0]
-
-    volid = lowbs[0]
-    if (isdefined(ref_num) and (ref_num < len(lowbs))):
-        volid = [ref_num]
-
-    if volid == 0:
-        data = data[..., 1:]
-        bval = bval[1:]
-    elif volid == (data.shape[-1] - 1):
-        data = data[..., :-1]
-        bval = bval[:-1]
-    else:
-        data = np.concatenate((data[..., :volid], data[..., (volid + 1):]),
-                              axis=3)
-        bval = np.hstack((bval[:volid], bval[(volid + 1):]))
-
-    out_ref = op.abspath('hmc_ref.nii.gz')
-    out_mov = op.abspath('hmc_mov.nii.gz')
-    out_bval = op.abspath('bval_split.txt')
-
-    hdr.set_data_shape(refdata.shape)
-    refdata = data[..., volid]
-    nb.Nifti1Image(refdata, im.get_affine(), hdr).to_filename(out_ref)
-
-    hdr.set_data_shape(data.shape)
-    nb.Nifti1Image(data, im.get_affine(), hdr).to_filename(out_mov)
-    np.savetxt(out_bval, bval)
-    return [out_ref, out_mov, out_bval, volid]
 
 
 def remove_comp(in_file, in_bval, volid=0, out_file=None):
@@ -600,88 +479,6 @@ def eddy_rotate_bvecs(in_bvec, eddy_params):
             new_bvecs.append((newbvec/np.linalg.norm(newbvec)))
 
     np.savetxt(out_file, np.array(new_bvecs).T, fmt='%0.15f')
-    return out_file
-
-
-def compute_readout(params):
-    """
-    Computes readout time from epi params (see `eddy documentation
-    <http://fsl.fmrib.ox.ac.uk/fsl/fslwiki/EDDY/Faq#How_do_I_know_what_to_put_into_my_--acqp_file.3F>`_).
-
-    .. warning:: ``params['echospacing']`` should be in *sec* units.
-
-
-    """
-    epi_factor = 1.0
-    acc_factor = 1.0
-    try:
-        if params['epi_factor'] > 1:
-            epi_factor = float(params['epi_factor'] - 1)
-    except:
-        pass
-    try:
-        if params['acc_factor'] > 1:
-            acc_factor = 1.0 / params['acc_factor']
-    except:
-        pass
-    return acc_factor * epi_factor * params['echospacing']
-
-
-def siemens2rads(in_file, out_file=None):
-    """
-    Converts input phase difference map to rads
-    """
-    import numpy as np
-    import nibabel as nb
-    import os.path as op
-    import math
-
-    if out_file is None:
-        fname, fext = op.splitext(op.basename(in_file))
-        if fext == '.gz':
-            fname, _ = op.splitext(fname)
-        out_file = op.abspath('./%s_rads.nii.gz' % fname)
-
-    in_file = np.atleast_1d(in_file).tolist()
-    im = nb.load(in_file[0])
-    data = im.get_data().astype(np.float32)
-    hdr = im.get_header().copy()
-
-    if len(in_file) == 2:
-        data = nb.load(in_file[1]).get_data().astype(np.float32) - data
-    elif (data.ndim == 4) and (data.shape[-1] == 2):
-        data = np.squeeze(data[..., 1] - data[..., 0])
-        hdr.set_data_shape(data.shape[:3])
-
-    imin = data.min()
-    imax = data.max()
-    data = (2.0 * math.pi * (data - imin)/(imax-imin)) - math.pi
-    hdr.set_data_dtype(np.float32)
-    hdr.set_xyzt_units('mm')
-    hdr['datatype'] = 16
-    nb.Nifti1Image(data, im.get_affine(), hdr).to_filename(out_file)
-    return out_file
-
-
-def rads2radsec(in_file, delta_te, out_file=None):
-    """
-    Converts input phase difference map to rads
-    """
-    import numpy as np
-    import nibabel as nb
-    import os.path as op
-    import math
-
-    if out_file is None:
-        fname, fext = op.splitext(op.basename(in_file))
-        if fext == '.gz':
-            fname, _ = op.splitext(fname)
-        out_file = op.abspath('./%s_radsec.nii.gz' % fname)
-
-    im = nb.load(in_file)
-    data = im.get_data().astype(np.float32) * (1.0/delta_te)
-    nb.Nifti1Image(data, im.get_affine(),
-                   im.get_header()).to_filename(out_file)
     return out_file
 
 

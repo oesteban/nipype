@@ -1,15 +1,7 @@
 # coding: utf-8
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
-import os
 
-import nipype.pipeline.engine as pe
-from nipype.interfaces.io import JSONFileGrabber
-from nipype.interfaces import utility as niu
-from nipype.interfaces import freesurfer as fs
-from nipype.interfaces import ants
-from nipype.interfaces import fsl
-from .utils import *
 
 def ecc_fsl(name='eddy_correct'):
     """
@@ -70,10 +62,14 @@ head-motion correction)
         outputnode.out_xfms - list of transformation matrices
     """
 
+    import nipype.pipeline.engine as pe
+    from nipype.interfaces import utility as niu
+    from nipype.interfaces import fsl
+    from .utils import (flirt_4d, b0_average, extract_bval, recompose_xfm, recompose_dwi)
     from nipype.workflows.data import get_flirt_schedule
+
     params = dict(dof=12, no_search=True, interp='spline', bgvalue=0,
                   schedule=get_flirt_schedule('ecc'))
-    # cost='normmi', cost_func='normmi', bins=64,
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['in_file', 'in_bval', 'in_mask', 'in_xfms']), name='inputnode')
@@ -85,7 +81,7 @@ head-motion correction)
         function=extract_bval), name='ExtractDWI')
     pick_dws.inputs.b = 'diff'
 
-    flirt = firt_4d(flirt_param=params, excl_nodiff=True)
+    flirt = flirt_4d(flirt_param=params, excl_nodiff=True)
 
     mult = pe.MapNode(fsl.BinaryMaths(operation='mul'), name='ModulateDWIs',
                       iterfield=['in_file', 'operand_value'])

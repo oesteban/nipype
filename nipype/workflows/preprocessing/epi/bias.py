@@ -1,17 +1,15 @@
 # coding: utf-8
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
-import os
 
-import nipype.pipeline.engine as pe
-from nipype.interfaces.io import JSONFileGrabber
-from nipype.interfaces import utility as niu
-from nipype.interfaces import freesurfer as fs
-from nipype.interfaces import ants
-from nipype.interfaces import fsl
-from .utils import *
 
 def remove_bias(name='bias_correct'):
+    import nipype.pipeline.engine as pe
+    from nipype.interfaces import utility as niu
+    from nipype.interfaces import ants
+    from nipype.interfaces import fsl
+    from .utils import b0_average
+
     """
     This workflow estimates a single multiplicative bias field from the
     averaged *b0* image, as suggested in [Jeurissen2014]_.
