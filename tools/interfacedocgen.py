@@ -34,7 +34,10 @@ from nipype.utils.misc import trim
 from github import get_file_url
 
 # Functions and classes
+
+
 class InterfaceHelpWriter(object):
+
     ''' Class for automatic detection and parsing of API docs
     to Sphinx-parsable reST format'''
 
@@ -164,7 +167,7 @@ class InterfaceHelpWriter(object):
         path = path.replace(self.package_name + os.path.sep, '')
         path = os.path.join(self.root_path, path)
         # XXX maybe check for extensions as well?
-        if os.path.exists(path + '.py'): # file
+        if os.path.exists(path + '.py'):  # file
             path += '.py'
         elif os.path.exists(os.path.join(path, '__init__.py')):
             path = os.path.join(path, '__init__.py')
@@ -182,37 +185,44 @@ class InterfaceHelpWriter(object):
     def _parse_module(self, uri):
         ''' Parse module defined in *uri* '''
         filename = self._uri2path(uri)
-        if filename is None:
-            # nothing that we could handle here.
-            return ([],[])
-        f = open(filename, 'rt')
-        functions, classes = self._parse_lines(f, uri)
-        f.close()
-        return functions, classes
+        with open(filename, 'rt') as f:
+            return self._parse_lines(f, uri)
+
+        return ([], [], [])
 
     def _parse_lines(self, linesource, module):
         ''' Parse lines of text for functions and classes '''
         functions = []
         classes = []
-        for line in linesource:
-            if line.startswith('def ') and line.count('('):
-                # exclude private stuff
-                name = self._get_object_name(line)
-                if not name.startswith('_'):
-                    functions.append(name)
-            elif line.startswith('class '):
-                # exclude private stuff
-                name = self._get_object_name(line)
-                if not name.startswith('_') and \
-                        self._survives_exclude('.'.join((module, name)),
-                                               'class'):
-                    classes.append(name)
-            else:
-                pass
+
+        text = ''.join(linesource)
+        fregex = re.compile(r'^def\s+(?!_)(\S*)(?:\(.*)(?:\):.*)?$', re.M)
+        cregex = re.compile(r'class (?!_)(\S*)(?:\(.*\))(?::.*\n)')
+        functions = fregex.findall(text)
+
+        # do not break backwards compatibility
+        if functions is None:
+            functions = []
+
+        classes = [c for c in cregex.findall(text)
+                   if self._survives_exclude('.'.join((module, c)), 'class')]
+
         functions.sort()
         classes.sort()
-        return functions, classes
 
+        headexp = re.compile(
+            r'(?:"{3}|\'{3})((?:.|\n)*?)(?:"{3}|\'{3})', re.MULTILINE)
+
+        header = headexp.findall(text)
+        if header is None:
+            header = []
+        else:
+            try:
+                header = header[0]
+            except IndexError:
+                header = []
+
+        return functions, classes, header
 
     def _write_graph_section(self, fname, title):
         ad = '\n%s\n%s\n\n' % (title, self.rst_section_levels[3] * len(title))
@@ -240,7 +250,7 @@ class InterfaceHelpWriter(object):
             Contents of API doc
         '''
         # get the names of all classes and functions
-        functions, classes = self._parse_module(uri)
+        functions, classes, headers = self._parse_module(uri)
         workflows = []
         helper_functions = []
         for function in functions:
@@ -257,32 +267,37 @@ class InterfaceHelpWriter(object):
                 continue
 
             if isinstance(workflow, Workflow):
-                workflows.append((workflow,function, finst))
+                workflows.append((workflow, function, finst))
 
         if not classes and not workflows and not helper_functions:
-            print 'WARNING: Empty -',uri  # dbg
+            print 'WARNING: Empty -', uri  # dbg
             return ''
 
         # Make a shorter version of the uri that omits the package name for
         # titles
         uri_short = re.sub(r'^%s\.' % self.package_name, '', uri)
-        #uri_short = uri
+        # uri_short = uri
 
         ad = '.. AUTO-GENERATED FILE -- DO NOT EDIT!\n\n'
 
+        curr_level = 1
+
         chap_title = uri_short
-        ad += (chap_title+'\n'+ self.rst_section_levels[1] * len(chap_title)
-               + '\n\n')
+        ad += (chap_title + '\n' + self.rst_section_levels[curr_level] *
+               len(chap_title) + '\n\n')
+
+        if len(headers) > 0:
+            ad += headers + '\n\n'
 
         # Set the chapter title to read 'module' for all modules except for the
         # main packages
-        #if '.' in uri:
+        # if '.' in uri:
         #    title = 'Module: :mod:`' + uri_short + '`'
-        #else:
+        # else:
         #    title = ':mod:`' + uri_short + '`'
-        #ad += title + '\n' + self.rst_section_levels[2] * len(title)
+        # ad += title + '\n' + self.rst_section_levels[2] * len(title)
 
-        #ad += '\n' + 'Classes' + '\n' + \
+        # ad += '\n' + 'Classes' + '\n' +
         #    self.rst_section_levels[2] * 7 + '\n'
         for c in classes:
             __import__(uri)
@@ -301,10 +316,11 @@ class InterfaceHelpWriter(object):
             label = uri + '.' + c + ':'
             ad += '\n.. _%s\n\n' % label
             ad += '\n.. index:: %s\n\n' % c
-            ad += c + '\n' + self.rst_section_levels[2] * len(c) + '\n\n'
+            ad += c + '\n' + \
+                self.rst_section_levels[curr_level + 1] * len(c) + '\n\n'
             ad += "`Link to code <%s>`__\n\n" % get_file_url(classinst)
             ad += trim(classinst.help(returnhelp=True),
-                       self.rst_section_levels[3]) + '\n'
+                       self.rst_section_levels[curr_level + 2]) + '\n'
 
         if workflows or helper_functions:
             ad += '\n.. module:: %s\n\n' % uri
@@ -312,9 +328,11 @@ class InterfaceHelpWriter(object):
         for workflow, name, finst in workflows:
             label = ':func:`' + name + '`'
             ad += '\n.. _%s:\n\n' % (uri + '.' + name)
-            ad += '\n'.join((label, self.rst_section_levels[2] * len(label)))
+            ad += '\n'.join((
+                label, self.rst_section_levels[curr_level + 1] * len(label)))
             ad += "\n\n`Link to code <%s>`__\n\n" % get_file_url(finst)
-            helpstr = trim(finst.__doc__, self.rst_section_levels[3])
+            helpstr = trim(
+                finst.__doc__, self.rst_section_levels[curr_level + 2])
             ad += '\n\n' + helpstr + '\n\n'
 
             """
@@ -323,17 +341,20 @@ class InterfaceHelpWriter(object):
             ad += '.. autofunction:: %s\n\n' % name
             """
 
-            (_,fname) =  tempfile.mkstemp(suffix=".dot")
-            workflow.write_graph(dotfilename=fname, graph2use='hierarchical')
+            (_, fname) = tempfile.mkstemp(suffix=".dot")
+            workflow.write_graph(
+                dotfilename=fname, graph2use='hierarchical')
 
             ad += self._write_graph_section(fname, 'Graph') + '\n'
 
         for name, finst in helper_functions:
             label = ':func:`' + name + '`'
             ad += '\n.. _%s:\n\n' % (uri + '.' + name)
-            ad += '\n'.join((label, self.rst_section_levels[2] * len(label)))
+            ad += '\n'.join((
+                label, self.rst_section_levels[curr_level + 1] * len(label)))
             ad += "\n\n`Link to code <%s>`__\n\n" % get_file_url(finst)
-            helpstr = trim(finst.__doc__, self.rst_section_levels[3])
+            helpstr = trim(
+                finst.__doc__, self.rst_section_levels[curr_level + 2])
             ad += '\n\n' + helpstr + '\n\n'
 
         return ad
@@ -411,10 +432,10 @@ class InterfaceHelpWriter(object):
             # Check directory names for packages
             root_uri = self._path2uri(os.path.join(self.root_path,
                                                    dirpath))
-            for dirname in dirnames[:]: # copy list - we modify inplace
+            for dirname in dirnames[:]:  # copy list - we modify inplace
                 package_uri = '.'.join((root_uri, dirname))
                 if (self._uri2path(package_uri) and
-                    self._survives_exclude(package_uri, 'package')):
+                        self._survives_exclude(package_uri, 'package')):
                     modules.append(package_uri)
                 else:
                     dirnames.remove(dirname)
@@ -423,11 +444,11 @@ class InterfaceHelpWriter(object):
                 module_name = filename[:-3]
                 module_uri = '.'.join((root_uri, module_name))
                 if (self._uri2path(module_uri) and
-                    self._survives_exclude(module_uri, 'module')):
+                        self._survives_exclude(module_uri, 'module')):
                     modules.append(module_uri)
         return sorted(modules)
 
-    def write_modules_api(self, modules,outdir):
+    def write_modules_api(self, modules, outdir):
         # write the list
         written_modules = []
         for m in modules:
@@ -464,7 +485,7 @@ class InterfaceHelpWriter(object):
             os.mkdir(outdir)
         # compose list of modules
         modules = self.discover_modules()
-        self.write_modules_api(modules,outdir)
+        self.write_modules_api(modules, outdir)
 
     def write_index(self, outdir, froot='gen', relative_to=None):
         """Make a reST API index file from written files
@@ -487,17 +508,17 @@ class InterfaceHelpWriter(object):
         if self.written_modules is None:
             raise ValueError('No modules written')
         # Get full filename path
-        path = os.path.join(outdir, froot+self.rst_extension)
+        path = os.path.join(outdir, froot + self.rst_extension)
         # Path written into index is relative to rootpath
         if relative_to is not None:
             relpath = outdir.replace(relative_to + os.path.sep, '')
         else:
             relpath = outdir
-        idx = open(path,'wt')
+        idx = open(path, 'wt')
         w = idx.write
         w('.. AUTO-GENERATED FILE -- DO NOT EDIT!\n\n')
         w('.. toctree::\n')
         w('   :maxdepth: 2\n\n')
         for f in self.written_modules:
-            w('   %s\n' % os.path.join(relpath,f))
+            w('   %s\n' % os.path.join(relpath, f))
         idx.close()

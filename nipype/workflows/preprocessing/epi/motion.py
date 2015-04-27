@@ -2,8 +2,7 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """
-Head-motion correction (HMC) workflows
---------------------------------------
+(Head-motion correction (HMC) workflows)
 
 
 Pipeline that correct for head motion artifacts in dMRI sequences.
@@ -18,12 +17,6 @@ can be chained. This is useful to correct for artifacts with only
 one interpolation process (as previously discussed `here
 <https://github.com/nipy/nipype/pull/530#issuecomment-14505042>`_),
 and also to compute nuisance regressors as proposed by [Yendiki13]_.
-
-
-.. warning:: This workflow rotates the `b`-vectors, so please be advised
-  that not all the dicom converters ensure the consistency between the
-  resulting nifti orientation and the gradients table (e.g. dcm2nii
-  checks it).
 
 
 .. admonition:: References
@@ -44,6 +37,12 @@ and also to compute nuisance regressors as proposed by [Yendiki13]_.
 def hmc_ants(name='motion_correct'):
     """
     HMC using ANTs registration.
+
+
+    .. warning:: This workflow rotates the `b`-vectors, so please be advised
+      that not all the dicom converters ensure the consistency between the
+      resulting nifti orientation and the gradients table (e.g. dcm2nii
+      checks it).
 
     Example
     -------
@@ -119,6 +118,12 @@ def hmc_flirt(name='motion_correct'):
     """
     HMC using FLIRT from FSL. Search angles have been limited to 4 degrees,
     based on the results of [Yendiki13]_.
+
+    .. warning:: This workflow rotates the `b`-vectors, so please be advised
+      that not all the dicom converters ensure the consistency between the
+      resulting nifti orientation and the gradients table (e.g. dcm2nii
+      checks it).
+
 
     Example
     -------

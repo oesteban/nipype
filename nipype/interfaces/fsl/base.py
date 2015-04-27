@@ -1,6 +1,7 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
-"""The fsl module provides classes for interfacing with the `FSL
+"""
+The fsl module provides classes for interfacing with the `FSL
 <http://www.fmrib.ox.ac.uk/fsl/index.html>`_ command line tools.  This
 was written to work with FSL version 4.1.4.
 
@@ -39,6 +40,7 @@ warnings.filterwarnings('always', category=UserWarning)
 
 
 class Info(object):
+
     """Handle fsl output type and version information.
 
     version refers to the version of fsl on the system
@@ -138,6 +140,7 @@ class Info(object):
 
 
 class FSLCommandInputSpec(CommandLineInputSpec):
+
     """
     Base Input Specification for all FSL Commands
 
@@ -153,6 +156,7 @@ class FSLCommandInputSpec(CommandLineInputSpec):
 
 
 class FSLCommand(CommandLine):
+
     """Base support for FSL commands.
 
     """
