@@ -1,12 +1,13 @@
 # coding: utf-8
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
+"""
+Eddy-currents correction (ECC) workflows.
+"""
 
 
 def ecc_fsl(name='eddy_correct'):
     """
-    ECC stands for Eddy currents correction.
-
     Creates a pipeline that corrects for artifacts induced by Eddy currents in
     dMRI sequences.
     It takes a series of diffusion weighted images and linearly co-registers
@@ -65,7 +66,8 @@ head-motion correction)
     import nipype.pipeline.engine as pe
     from nipype.interfaces import utility as niu
     from nipype.interfaces import fsl
-    from .utils import (flirt_4d, b0_average, extract_bval, recompose_xfm, recompose_dwi)
+    from .utils import (
+        flirt_4d, b0_average, extract_bval, recompose_xfm, recompose_dwi)
     from nipype.workflows.data import get_flirt_schedule
 
     params = dict(dof=12, no_search=True, interp='spline', bgvalue=0,

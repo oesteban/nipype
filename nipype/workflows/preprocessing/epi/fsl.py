@@ -1,15 +1,6 @@
 # coding: utf-8
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
-import os
-
-import nipype.pipeline.engine as pe
-from nipype.interfaces.io import JSONFileGrabber
-from nipype.interfaces import utility as niu
-from nipype.interfaces import freesurfer as fs
-from nipype.interfaces import ants
-from nipype.interfaces import fsl
-from .utils import *
 
 
 def all_dmri(name='fsl_all_correct',
@@ -43,6 +34,14 @@ def all_dmri(name='fsl_all_correct',
     >>> allcorr.run() # doctest: +SKIP
 
     """
+    from nipype.pipeline import engine as pe
+    from nipype.interfaces.io import JSONFileGrabber
+    from nipype.interfaces import utility as niu
+    from nipype.interfaces import freesurfer as fs
+    from nipype.interfaces import ants
+    from nipype.interfaces import fsl
+    from .utils import b0_average, eddy_rotate_bvecs
+    from .susceptibility import sdc_peb
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['in_file', 'in_bvec', 'in_bval', 'alt_file']),

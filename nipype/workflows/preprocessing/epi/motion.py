@@ -2,11 +2,9 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """
-(Head-motion correction (HMC) workflows)
-
-
-Pipeline that correct for head motion artifacts in dMRI sequences.
-They take a series of diffusion weighted images and rigidly co-registers
+Head-motion correction (HMC) workflows are pipelines to correct
+for head motion artifacts in dMRI sequences.
+They take a series of diffusion weighted images and rigidly co-register
 them to one reference image. Finally, the `b`-matrix is rotated accordingly
 [Leemans09]_ making use of the rotation matrix obtained by the registration
 algorithm.
@@ -75,16 +73,20 @@ should be taken as reference
     import nipype.pipeline.engine as pe
     from nipype.interfaces import utility as niu
     from nipype.interfaces import ants
+    from nipype.interfaces import fsl
     from .utils import (insert_mat, rotate_bvecs)
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['in_file', 'ref_num', 'in_bvec', 'in_bval', 'in_mask']),
         name='inputnode')
-    split = pe.Node(niu.Function(
-        output_names=['out_ref', 'out_mov', 'out_bval', 'volid'],
-        input_names=['in_file', 'in_bval', 'ref_num'], function=hmc_split),
-        name='SplitDWI')
-    reg = ants_4d(param=params)
+
+    split = pe.Node(fsl.Split(dimension='t'), name='Split4D')
+    selref = pe.Node(niu.Select(), name='ExtractReference')
+    selmov = pe.Node(niu.Function(
+        function=_extract, output_names=['out'],
+        input_names=['in_files', 'ref_num']), name='ExtractMoving')
+
+    reg = _ants_4d()
     insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
                                   output_names=['out'], function=insert_mat),
                      name='InsertRefmat')
@@ -96,20 +98,20 @@ should be taken as reference
 
     wf = pe.Workflow(name=name)
     wf.connect([
-        (inputnode,     split,   [('in_file', 'in_file'),
-                                  ('in_bval', 'in_bval'),
-                                  ('ref_num', 'ref_num')]),
-        (inputnode,  reg,      [('in_mask', 'inputnode.ref_mask')]),
-        (split,      reg,      [('out_ref', 'inputnode.reference'),
-                                ('out_mov', 'inputnode.in_file'),
-                                ('out_bval', 'inputnode.in_bval')]),
-        (reg,      insmat,     [('outputnode.out_xfms', 'inlist')]),
-        (split,      insmat,     [('volid', 'volid')]),
-        (inputnode,  rot_bvec,   [('in_bvec', 'in_bvec')]),
-        (insmat,     rot_bvec,   [('out', 'in_matrix')]),
-        (rot_bvec,   outputnode, [('out_file', 'out_bvec')]),
-        (ants,      outputnode, [('outputnode.out_file', 'out_file')]),
-        (insmat,     outputnode, [('out', 'out_xfms')])
+        (inputnode,  split,      [('in_file', 'in_file')]),
+        (split,      selref,     [('out_files', 'inlist')]),
+        (inputnode,  selref,      [('ref_num', 'index')]),
+        (split,      selmov,     [('out_files', 'in_files')]),
+        (inputnode,  selmov,      [('ref_num', 'ref_num')]),
+        (inputnode,  reg,        [('in_mask', 'inputnode.ref_mask')]),
+        (selref,     reg,        [('out', 'inputnode.reference')]),
+        (selmov,     reg,        [('out', 'inputnode.moving')]),
+        # (reg,        insmat,     [('outputnode.out_xfms', 'inlist')]),
+        # (inputnode,  rot_bvec,   [('in_bvec', 'in_bvec')]),
+        # (insmat,     rot_bvec,   [('out', 'in_matrix')]),
+        # (rot_bvec,   outputnode, [('out_file', 'out_bvec')]),
+        (reg,        outputnode, [('outputnode.out_file', 'out_file')]),
+        # (insmat,     outputnode, [('out', 'out_xfms')])
     ])
     return wf
 
@@ -166,9 +168,8 @@ should be taken as reference
         fields=['in_file', 'ref_num', 'in_bvec', 'in_bval', 'in_mask']),
         name='inputnode')
     split = pe.Node(niu.Function(
-        output_names=['out_ref', 'out_mov', 'out_bval', 'volid'],
-        input_names=['in_file', 'in_bval', 'ref_num'], function=hmc_split),
-        name='SplitDWI')
+        function=hmc_split, output_names=['out_ref', 'out_mov'],
+        input_names=['in_file', 'ref_num']), name='SplitDWI')
     flirt = flirt_4d(flirt_param=params)
     insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
                                   output_names=['out'], function=insert_mat),
@@ -182,14 +183,11 @@ should be taken as reference
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,     split,   [('in_file', 'in_file'),
-                                  ('in_bval', 'in_bval'),
                                   ('ref_num', 'ref_num')]),
         (inputnode,  flirt,      [('in_mask', 'inputnode.ref_mask')]),
         (split,      flirt,      [('out_ref', 'inputnode.reference'),
-                                  ('out_mov', 'inputnode.in_file'),
-                                  ('out_bval', 'inputnode.in_bval')]),
+                                  ('out_mov', 'inputnode.in_file')]),
         (flirt,      insmat,     [('outputnode.out_xfms', 'inlist')]),
-        (split,      insmat,     [('volid', 'volid')]),
         (inputnode,  rot_bvec,   [('in_bvec', 'in_bvec')]),
         (insmat,     rot_bvec,   [('out', 'in_matrix')]),
         (rot_bvec,   outputnode, [('out_file', 'out_bvec')]),
@@ -199,7 +197,7 @@ should be taken as reference
     return wf
 
 
-def hmc_split(in_file, in_bval, ref_num=0, lowbval=5.0):
+def hmc_split(in_file, ref_num=0, lowbval=5.0):
     """
     Selects the reference and moving volumes from a dwi dataset
     for the purpose of HMC.
@@ -212,34 +210,102 @@ def hmc_split(in_file, in_bval, ref_num=0, lowbval=5.0):
     im = nb.load(in_file)
     data = im.get_data()
     hdr = im.get_header().copy()
-    bval = np.loadtxt(in_bval)
 
-    lowbs = np.where(bval <= lowbval)[0]
+    volid = int(ref_num)
 
-    volid = lowbs[0]
-    if (isdefined(ref_num) and (ref_num < len(lowbs))):
-        volid = [ref_num]
+    refdata = np.squeeze(data[..., volid])
 
     if volid == 0:
-        data = data[..., 1:]
-        bval = bval[1:]
+        movdata = data[..., 1:]
     elif volid == (data.shape[-1] - 1):
-        data = data[..., :-1]
-        bval = bval[:-1]
+        movdata = data[..., :-1]
     else:
-        data = np.concatenate((data[..., :volid], data[..., (volid + 1):]),
-                              axis=3)
-        bval = np.hstack((bval[:volid], bval[(volid + 1):]))
+        movdata = np.concatenate((data[..., :volid], data[..., (volid + 1):]),
+                                 axis=3)
 
     out_ref = op.abspath('hmc_ref.nii.gz')
     out_mov = op.abspath('hmc_mov.nii.gz')
-    out_bval = op.abspath('bval_split.txt')
 
     hdr.set_data_shape(refdata.shape)
-    refdata = data[..., volid]
     nb.Nifti1Image(refdata, im.get_affine(), hdr).to_filename(out_ref)
 
-    hdr.set_data_shape(data.shape)
-    nb.Nifti1Image(data, im.get_affine(), hdr).to_filename(out_mov)
-    np.savetxt(out_bval, bval)
-    return [out_ref, out_mov, out_bval, volid]
+    hdr.set_data_shape(movdata.shape)
+    nb.Nifti1Image(movdata, im.get_affine(), hdr).to_filename(out_mov)
+
+    return (out_ref, out_mov)
+
+
+def _ants_4d(name='DWICoregistration'):
+    """
+    Generates a workflow for rigid registration of dwi volumes
+    using ants
+    """
+    import nipype.pipeline.engine as pe
+    from nipype.interfaces import utility as niu
+    from nipype.interfaces import freesurfer as fs
+    from nipype.interfaces import ants
+    from nipype.interfaces import fsl
+    from .utils import enhance
+
+    inputnode = pe.Node(niu.IdentityInterface(
+        fields=['reference', 'moving', 'ref_mask']),
+        name='inputnode')
+
+    dilate = pe.Node(fsl.maths.MathsCommand(
+        nan2zeros=True, args='-kernel sphere 5 -dilM'), name='MskDilate')
+    n4 = pe.Node(ants.N4BiasFieldCorrection(dimension=3), name='Bias')
+    refth = pe.Node(fsl.Threshold(thresh=0.0), name='ReferenceThres')
+
+    reg = pe.MapNode(
+        ants.Registration(output_warped_image=True),
+        iterfield=['moving_image'], name="dwi_to_b0")
+
+    reg.inputs.transforms = ['Rigid']
+    reg.inputs.transform_parameters = [(0.05,)]
+    reg.inputs.number_of_iterations = [[500]]
+    reg.inputs.dimension = 3
+    reg.inputs.metric = ['Mattes']
+    reg.inputs.metric_weight = [1.0]
+    reg.inputs.radius_or_number_of_bins = [64]
+    reg.inputs.sampling_strategy = ['Random']
+    reg.inputs.sampling_percentage = [0.2]
+    reg.inputs.convergence_threshold = [1.e-7]
+    reg.inputs.convergence_window_size = [20]
+    reg.inputs.smoothing_sigmas = [[2.0]]
+    reg.inputs.sigma_units = ['vox']
+    reg.inputs.shrink_factors = [[1]]
+    reg.inputs.use_estimate_learning_rate_once = [True]
+    reg.inputs.use_histogram_matching = [True]
+    reg.inputs.initial_moving_transform_com = 0
+    reg.inputs.winsorize_lower_quantile = .04
+    reg.inputs.winsorize_upper_quantile = .85
+
+    thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
+                       name='RemoveNegative')
+    merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWIs')
+    outputnode = pe.Node(niu.IdentityInterface(
+        fields=['out_file', 'out_xfms']), name='outputnode')
+
+    wf = pe.Workflow(name=name)
+    wf.connect([
+        (inputnode,  dilate,     [('ref_mask', 'in_file')]),
+        (inputnode,  n4,         [('reference', 'input_image'),
+                                  ('ref_mask', 'mask_image')]),
+        (dilate,     reg,        [('out_file', 'fixed_image_mask'),
+                                  ('out_file', 'moving_image_mask')]),
+        (n4,         refth,      [('output_image', 'in_file')]),
+        (refth,      reg,        [('out_file', 'fixed_image')]),
+        (inputnode,  reg,        [('moving', 'moving_image')]),
+        (reg,        thres,      [('warped_image', 'in_file')]),
+        (thres,      merge,      [('out_file', 'in_files')]),
+        (merge,      outputnode, [('merged_file', 'out_file')]),
+        (reg,        outputnode, [('forward_transforms', 'out_xfms')])
+    ])
+    return wf
+
+
+def _extract(in_files, ref_num=0):
+    import numpy as np
+    out = list(in_files)
+    del out[ref_num]
+    return out

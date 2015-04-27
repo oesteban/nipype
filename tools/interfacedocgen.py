@@ -211,7 +211,7 @@ class InterfaceHelpWriter(object):
         classes.sort()
 
         headexp = re.compile(
-            r'(?:"{3}|\'{3})((?:.|\n)*?)(?:"{3}|\'{3})', re.MULTILINE)
+            r'^(?:"{3}|\'{3})((?:.|\n)*?)(?:"{3}|\'{3})', re.MULTILINE)
 
         header = headexp.findall(text)
         if header is None:
@@ -287,6 +287,9 @@ class InterfaceHelpWriter(object):
                len(chap_title) + '\n\n')
 
         if len(headers) > 0:
+            summary = 'Summary'
+            ad += summary + '\n' + (self.rst_section_levels[curr_level + 1] *
+                                    len(summary) + '\n\n')
             ad += headers + '\n\n'
 
         # Set the chapter title to read 'module' for all modules except for the

@@ -59,35 +59,38 @@ def _get_zoom(in_file, enc_dir):
 def flirt_4d(name='DWICoregistration', excl_nodiff=False,
              flirt_param={}):
     """
-    Generates a workflow for linear registration of dwi volumes
+    Generates a workflow for linear registration of dwi volumes, used
+    inside :func:nipype.workflows.preprocessing.epi.hmc_flirt and
+    :func:nipype.workflows.preprocessing.epi.ecc_fsl
     """
-    inputnode = pe.Node(niu.IdentityInterface(fields=['reference',
-                        'in_file', 'ref_mask', 'in_xfms', 'in_bval']),
-                        name='inputnode')
+    inputnode = pe.Node(niu.IdentityInterface(
+        fields=['reference', 'in_file', 'ref_mask', 'in_xfms', 'in_bval']),
+        name='inputnode')
 
-    initmat = pe.Node(niu.Function(input_names=['in_bval', 'in_xfms',
-                      'excl_nodiff'], output_names=['init_xfms'],
-                                   function=_checkinitxfm), name='InitXforms')
+    initmat = pe.Node(niu.Function(
+        input_names=['in_bval', 'in_xfms', 'excl_nodiff'],
+        output_names=['init_xfms'], function=_checkinitxfm), name='InitXforms')
     initmat.inputs.excl_nodiff = excl_nodiff
-    dilate = pe.Node(fsl.maths.MathsCommand(nan2zeros=True,
-                     args='-kernel sphere 5 -dilM'), name='MskDilate')
+    dilate = pe.Node(fsl.maths.MathsCommand(
+        nan2zeros=True, args='-kernel sphere 5 -dilM'), name='MskDilate')
     split = pe.Node(fsl.Split(dimension='t'), name='SplitDWIs')
     pick_ref = pe.Node(niu.Select(), name='Pick_b0')
     n4 = pe.Node(ants.N4BiasFieldCorrection(dimension=3), name='Bias')
-    enhb0 = pe.Node(niu.Function(input_names=['in_file', 'in_mask',
-                    'clip_limit'], output_names=['out_file'],
-                                 function=enhance), name='B0Equalize')
+    enhb0 = pe.Node(niu.Function(
+        input_names=['in_file', 'in_mask', 'clip_limit'],
+        output_names=['out_file'], function=enhance), name='B0Equalize')
     enhb0.inputs.clip_limit = 0.015
-    enhdw = pe.MapNode(niu.Function(input_names=['in_file', 'in_mask'],
-                       output_names=['out_file'], function=enhance),
-                       name='DWEqualize', iterfield=['in_file'])
+    enhdw = pe.MapNode(niu.Function(
+        input_names=['in_file', 'in_mask'],
+        output_names=['out_file'], function=enhance),
+        name='DWEqualize', iterfield=['in_file'])
     flirt = pe.MapNode(fsl.FLIRT(**flirt_param), name='CoRegistration',
                        iterfield=['in_file', 'in_matrix_file'])
     thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
                        name='RemoveNegative')
     merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWIs')
-    outputnode = pe.Node(niu.IdentityInterface(fields=['out_file',
-                         'out_xfms']), name='outputnode')
+    outputnode = pe.Node(niu.IdentityInterface(
+        fields=['out_file', 'out_xfms']), name='outputnode')
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,  split,      [('in_file', 'in_file')]),
@@ -109,67 +112,6 @@ def flirt_4d(name='DWICoregistration', excl_nodiff=False,
         (thres,      merge,      [('out_file', 'in_files')]),
         (merge,      outputnode, [('merged_file', 'out_file')]),
         (flirt,      outputnode, [('out_matrix_file', 'out_xfms')])
-    ])
-    return wf
-
-
-def apply_all_corrections(name='UnwarpArtifacts'):
-    """
-    Combines two lists of linear transforms with the deformation field
-    map obtained typically after the SDC process.
-    Additionally, computes the corresponding bspline coefficients and
-    the map of determinants of the jacobian.
-    """
-
-    inputnode = pe.Node(niu.IdentityInterface(fields=['in_sdc',
-                        'in_hmc', 'in_ecc', 'in_dwi']), name='inputnode')
-    outputnode = pe.Node(niu.IdentityInterface(fields=['out_file', 'out_warp',
-                         'out_coeff', 'out_jacobian']), name='outputnode')
-    warps = pe.MapNode(fsl.ConvertWarp(relwarp=True),
-                       iterfield=['premat', 'postmat'],
-                       name='ConvertWarp')
-
-    selref = pe.Node(niu.Select(index=[0]), name='Reference')
-
-    split = pe.Node(fsl.Split(dimension='t'), name='SplitDWIs')
-    unwarp = pe.MapNode(fsl.ApplyWarp(), iterfield=['in_file', 'field_file'],
-                        name='UnwarpDWIs')
-
-    coeffs = pe.MapNode(fsl.WarpUtils(out_format='spline'),
-                        iterfield=['in_file'], name='CoeffComp')
-    jacobian = pe.MapNode(fsl.WarpUtils(write_jacobian=True),
-                          iterfield=['in_file'], name='JacobianComp')
-    jacmult = pe.MapNode(fsl.MultiImageMaths(op_string='-mul %s'),
-                         iterfield=['in_file', 'operand_files'],
-                         name='ModulateDWIs')
-
-    thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
-                       name='RemoveNegative')
-    merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWIs')
-
-    wf = pe.Workflow(name=name)
-    wf.connect([
-        (inputnode,   warps,      [('in_sdc', 'warp1'),
-                                   ('in_hmc', 'premat'),
-                                   ('in_ecc', 'postmat'),
-                                   ('in_dwi', 'reference')]),
-        (inputnode,   split,      [('in_dwi', 'in_file')]),
-        (split,       selref,     [('out_files', 'inlist')]),
-        (warps,       unwarp,     [('out_file', 'field_file')]),
-        (split,       unwarp,     [('out_files', 'in_file')]),
-        (selref,      unwarp,     [('out', 'ref_file')]),
-        (selref,      coeffs,     [('out', 'reference')]),
-        (warps,       coeffs,     [('out_file', 'in_file')]),
-        (selref,      jacobian,   [('out', 'reference')]),
-        (coeffs,      jacobian,   [('out_file', 'in_file')]),
-        (unwarp,      jacmult,    [('out_file', 'in_file')]),
-        (jacobian,    jacmult,    [('out_jacobian', 'operand_files')]),
-        (jacmult,     thres,      [('out_file', 'in_file')]),
-        (thres,       merge,      [('out_file', 'in_files')]),
-        (warps,       outputnode, [('out_file', 'out_warp')]),
-        (coeffs,      outputnode, [('out_file', 'out_coeff')]),
-        (jacobian,    outputnode, [('out_jacobian', 'out_jacobian')]),
-        (merge,       outputnode, [('merged_file', 'out_file')])
     ])
     return wf
 
@@ -340,8 +282,9 @@ def time_avg(in_file, index=[0], out_file=None):
     if len(index) == 1:
         data = imgs[0].get_data().astype(np.float32)
     else:
-        data = np.average(np.array([im.get_data().astype(np.float32) for im in imgs]),
-                         axis=0)
+        data = np.average(
+            np.array([im.get_data().astype(np.float32) for im in imgs]),
+            axis=0)
 
     hdr = imgs[0].get_header().copy()
     hdr.set_data_shape(data.shape)
@@ -382,7 +325,10 @@ def b0_average(in_dwi, in_bval, max_b=10.0, out_file=None):
         out_file = op.abspath("%s_avg_b0%s" % (fname, ext))
 
     imgs = np.array(nb.four_to_three(nb.load(in_dwi)))
-    index = b0_indices(in_bval, max_b=max_b)
+
+    bval = np.loadtxt(in_bval)
+    index = np.argwhere(bval <= max_b).flatten().tolist()
+
     b0s = [im.get_data().astype(np.float32)
            for im in imgs[index]]
     b0 = np.average(np.array(b0s), axis=0)
@@ -417,8 +363,8 @@ def rotate_bvecs(in_bvec, in_matrix):
 
     if len(bvecs) != len(in_matrix):
         raise RuntimeError(('Number of b-vectors (%d) and rotation '
-                           'matrices (%d) should match.') % (len(bvecs),
-                           len(in_matrix)))
+                            'matrices (%d) should match.') % (len(bvecs),
+                                                              len(in_matrix)))
 
     for bvec, mat in zip(bvecs, in_matrix):
         if np.all(bvec == 0.0):
@@ -426,7 +372,7 @@ def rotate_bvecs(in_bvec, in_matrix):
         else:
             invrot = np.linalg.inv(np.loadtxt(mat))[:3, :3]
             newbvec = invrot.dot(bvec)
-            new_bvecs.append((newbvec/np.linalg.norm(newbvec)))
+            new_bvecs.append((newbvec / np.linalg.norm(newbvec)))
 
     np.savetxt(out_file, np.array(new_bvecs).T, fmt='%0.15f')
     return out_file
@@ -453,7 +399,7 @@ def eddy_rotate_bvecs(in_bvec, eddy_params):
 
     if len(bvecs) != len(params):
         raise RuntimeError(('Number of b-vectors and rotation '
-                           'matrices should match.'))
+                            'matrices should match.'))
 
     for bvec, row in zip(bvecs, params):
         if np.all(bvec == 0.0):
@@ -464,19 +410,19 @@ def eddy_rotate_bvecs(in_bvec, eddy_params):
             az = row[5]
 
             Rx = np.array([[1.0, 0.0, 0.0],
-                          [0.0, cos(ax), -sin(ax)],
-                          [0.0, sin(ax), cos(ax)]])
+                           [0.0, cos(ax), -sin(ax)],
+                           [0.0, sin(ax), cos(ax)]])
             Ry = np.array([[cos(ay), 0.0, sin(ay)],
-                          [0.0, 1.0, 0.0],
-                          [-sin(ay), 0.0, cos(ay)]])
+                           [0.0, 1.0, 0.0],
+                           [-sin(ay), 0.0, cos(ay)]])
             Rz = np.array([[cos(az), -sin(az), 0.0],
-                          [sin(az), cos(az), 0.0],
-                          [0.0, 0.0, 1.0]])
+                           [sin(az), cos(az), 0.0],
+                           [0.0, 0.0, 1.0]])
             R = Rx.dot(Ry).dot(Rz)
 
             invrot = np.linalg.inv(R)
             newbvec = invrot.dot(bvec)
-            new_bvecs.append((newbvec/np.linalg.norm(newbvec)))
+            new_bvecs.append((newbvec / np.linalg.norm(newbvec)))
 
     np.savetxt(out_file, np.array(new_bvecs).T, fmt='%0.15f')
     return out_file
@@ -557,7 +503,7 @@ def reorient_bvecs(in_dwi, old_dwi, in_bvec):
     sc_idx = np.where((np.abs(RS) != 1) & (RS != 0))
     S = np.ones_like(RS)
     S[sc_idx] = RS[sc_idx]
-    R = RS/S
+    R = RS / S
 
     new_bvecs = [R.dot(b) for b in bvecs]
     np.savetxt(out_file, np.array(new_bvecs).T, fmt='%0.15f')

@@ -4,12 +4,6 @@
 
 
 def remove_bias(name='bias_correct'):
-    import nipype.pipeline.engine as pe
-    from nipype.interfaces import utility as niu
-    from nipype.interfaces import ants
-    from nipype.interfaces import fsl
-    from .utils import b0_average
-
     """
     This workflow estimates a single multiplicative bias field from the
     averaged *b0* image, as suggested in [Jeurissen2014]_.
@@ -33,6 +27,12 @@ def remove_bias(name='bias_correct'):
     >>> bias.run() # doctest: +SKIP
 
     """
+    import nipype.pipeline.engine as pe
+    from nipype.interfaces import utility as niu
+    from nipype.interfaces import ants
+    from nipype.interfaces import fsl
+    from .utils import b0_average
+
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['in_file', 'in_bval', 'in_mask']), name='inputnode')
 

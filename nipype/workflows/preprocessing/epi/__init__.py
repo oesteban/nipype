@@ -5,7 +5,7 @@
 from bias import remove_bias
 from eddy import ecc_fsl
 from susceptibility import sdc_fmb, sdc_peb
-from motion import hmc_flirt
+from motion import hmc_flirt, hmc_ants
 
 from fsl import all_dmri
 from complete import all_fmb_pipeline, all_peb_pipeline
