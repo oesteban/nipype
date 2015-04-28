@@ -87,31 +87,42 @@ should be taken as reference
         input_names=['in_files', 'ref_num']), name='ExtractMoving')
 
     reg = _ants_4d()
+
+    insb0 = pe.Node(niu.Function(
+        function=_insert_b0, input_names=['in_b0', 'in_files', 'pos'],
+        output_names=['out_files']), name='InsertB0')
+
     insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
                                   output_names=['out'], function=insert_mat),
                      name='InsertRefmat')
-    rot_bvec = pe.Node(niu.Function(
-        function=rotate_bvecs, input_names=['in_bvec', 'in_matrix'],
-        output_names=['out_file']), name='Rotate_Bvec')
+
+    rot_bvec = _ants_rotate_bvecs()
+
+    merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWI')
     outputnode = pe.Node(niu.IdentityInterface(
-        fields=['out_file', 'out_bvec', 'out_xfms']), name='outputnode')
+        fields=['out_file', 'out_bvec', 'out_tran']), name='outputnode')
 
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,  split,      [('in_file', 'in_file')]),
         (split,      selref,     [('out_files', 'inlist')]),
-        (inputnode,  selref,      [('ref_num', 'index')]),
+        (inputnode,  selref,     [('ref_num', 'index')]),
         (split,      selmov,     [('out_files', 'in_files')]),
-        (inputnode,  selmov,      [('ref_num', 'ref_num')]),
+        (inputnode,  selmov,     [('ref_num', 'ref_num')]),
         (inputnode,  reg,        [('in_mask', 'inputnode.ref_mask')]),
         (selref,     reg,        [('out', 'inputnode.reference')]),
         (selmov,     reg,        [('out', 'inputnode.moving')]),
-        # (reg,        insmat,     [('outputnode.out_xfms', 'inlist')]),
-        # (inputnode,  rot_bvec,   [('in_bvec', 'in_bvec')]),
-        # (insmat,     rot_bvec,   [('out', 'in_matrix')]),
-        # (rot_bvec,   outputnode, [('out_file', 'out_bvec')]),
-        (reg,        outputnode, [('outputnode.out_file', 'out_file')]),
-        # (insmat,     outputnode, [('out', 'out_xfms')])
+        (reg,        insb0,      [('outputnode.out_files', 'in_files')]),
+        (inputnode,  insb0,      [('ref_num', 'pos')]),
+        (reg,        insb0,      [('outputnode.out_ref', 'in_b0')]),
+        (insb0,      merge,      [('out_files', 'in_files')]),
+        (inputnode,  rot_bvec,   [('in_bvec', 'inputnode.in_bvec'),
+                                  ('ref_num', 'inputnode.ref_num')]),
+        (reg,        rot_bvec,   [
+            ('outputnode.out_xfms', 'inputnode.in_xfms')]),
+        (rot_bvec,   outputnode, [('outputnode.out_bvec', 'out_bvec'),
+                                  ('outputnode.out_tran', 'out_tran')]),
+        (merge,      outputnode, [('merged_file', 'out_file')])
     ])
     return wf
 
@@ -240,12 +251,11 @@ def _ants_4d(name='DWICoregistration'):
     Generates a workflow for rigid registration of dwi volumes
     using ants
     """
-    import nipype.pipeline.engine as pe
+    from nipype.pipeline import engine as pe
     from nipype.interfaces import utility as niu
     from nipype.interfaces import freesurfer as fs
     from nipype.interfaces import ants
     from nipype.interfaces import fsl
-    from .utils import enhance
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['reference', 'moving', 'ref_mask']),
@@ -261,47 +271,117 @@ def _ants_4d(name='DWICoregistration'):
         iterfield=['moving_image'], name="dwi_to_b0")
 
     reg.inputs.transforms = ['Rigid']
-    reg.inputs.transform_parameters = [(0.05,)]
+    reg.inputs.transform_parameters = [(2.,)]
     reg.inputs.number_of_iterations = [[500]]
     reg.inputs.dimension = 3
-    reg.inputs.metric = ['Mattes']
+    reg.inputs.metric = ['GC']
     reg.inputs.metric_weight = [1.0]
-    reg.inputs.radius_or_number_of_bins = [64]
+    # reg.inputs.radius_or_number_of_bins = [4]
     reg.inputs.sampling_strategy = ['Random']
-    reg.inputs.sampling_percentage = [0.2]
+    reg.inputs.sampling_percentage = [0.4]
     reg.inputs.convergence_threshold = [1.e-7]
     reg.inputs.convergence_window_size = [20]
-    reg.inputs.smoothing_sigmas = [[2.0]]
+    reg.inputs.smoothing_sigmas = [[0.0]]
     reg.inputs.sigma_units = ['vox']
     reg.inputs.shrink_factors = [[1]]
     reg.inputs.use_estimate_learning_rate_once = [True]
-    reg.inputs.use_histogram_matching = [True]
+    reg.inputs.use_histogram_matching = [False]
     reg.inputs.initial_moving_transform_com = 0
-    reg.inputs.winsorize_lower_quantile = .04
-    reg.inputs.winsorize_upper_quantile = .85
 
     thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
                        name='RemoveNegative')
-    merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWIs')
+
     outputnode = pe.Node(niu.IdentityInterface(
-        fields=['out_file', 'out_xfms']), name='outputnode')
+        fields=['out_files', 'out_ref', 'out_xfms']), name='outputnode')
 
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,  dilate,     [('ref_mask', 'in_file')]),
         (inputnode,  n4,         [('reference', 'input_image'),
                                   ('ref_mask', 'mask_image')]),
-        (dilate,     reg,        [('out_file', 'fixed_image_mask'),
-                                  ('out_file', 'moving_image_mask')]),
         (n4,         refth,      [('output_image', 'in_file')]),
         (refth,      reg,        [('out_file', 'fixed_image')]),
         (inputnode,  reg,        [('moving', 'moving_image')]),
         (reg,        thres,      [('warped_image', 'in_file')]),
-        (thres,      merge,      [('out_file', 'in_files')]),
-        (merge,      outputnode, [('merged_file', 'out_file')]),
-        (reg,        outputnode, [('forward_transforms', 'out_xfms')])
+        (thres,      outputnode, [('out_file', 'out_files')]),
+        (reg,        outputnode, [('reverse_transforms', 'out_xfms')]),
+        (refth,      outputnode, [('out_file', 'out_ref')])
     ])
     return wf
+
+
+def _ants_rotate_bvecs(name='BmatrixRotation'):
+    from nipype.pipeline import engine as pe
+    from nipype.interfaces import utility as niu
+    from nipype.algorithms import misc as nam
+    from nipype.interfaces import ants
+
+    inputnode = pe.Node(niu.IdentityInterface(
+        fields=['in_bvec', 'in_xfms', 'ref_num']), name='inputnode')
+    outputnode = pe.Node(niu.IdentityInterface(
+        fields=['out_bvec', 'out_tran']), name='outputnode')
+
+    tocsv = pe.Node(niu.Function(
+        function=_bvecs2csv, input_names=['in_bvec'],
+        output_names=['out_files']), name='Bvecs2CSV')
+
+    xfm = pe.MapNode(ants.ApplyTransformsToPoints(dimension=3),
+                     iterfield=['input_file', 'transforms'],
+                     name='RotateBvec')
+    tobvec = pe.Node(niu.Function(
+        function=_csv2bvecs, input_names=['inlist', 'ref_num'],
+        output_names=['out_bvec', 'out_tran']), name='GenBmatrix')
+
+    wf = pe.Workflow(name=name)
+    wf.connect([
+        (inputnode,  tocsv,      [('in_bvec', 'in_bvec')]),
+        (tocsv,      xfm,        [('out_files', 'input_file')]),
+        (inputnode,  xfm,        [('in_xfms', 'transforms')]),
+        (xfm,        tobvec,     [('output_file', 'inlist')]),
+        (inputnode,  tobvec,     [('ref_num', 'ref_num')]),
+        (tobvec,     outputnode, [('out_bvec', 'out_bvec'),
+                                  ('out_tran', 'out_tran')])
+    ])
+
+    return wf
+
+
+def _bvecs2csv(in_bvec):
+    import numpy as np
+    import os.path as op
+    bvec = np.loadtxt(in_bvec).T
+    out_files = []
+    for i in range(1, len(bvec)):
+        out_file = op.abspath('bvec%04d.csv' % i)
+        bv = np.array([[0, 0, 0], bvec[i]])
+        np.savetxt(
+            out_file, bv, delimiter=',', header='x,y,z')
+        out_files.append(out_file)
+    return out_files
+
+
+def _csv2bvecs(inlist, ref_num=0):
+    import numpy as np
+    import os.path as op
+
+    bvecs = []
+    translations = []
+
+    for f in inlist:
+        d = np.loadtxt(f, delimiter=',')
+        t = d[0]
+        r = d[1] - t
+        bvecs.append(r.tolist())
+        translations.append(t.tolist())
+
+    bvecs.insert(ref_num, [0., 0., 0.])
+    translations.insert(ref_num, [0., 0., 0.])
+    out_bvec = op.abspath('rotated.bvecs')
+    out_tran = op.abspath('translations.txt')
+
+    np.savetxt(out_bvec, np.array(bvecs).T)
+    np.savetxt(out_tran, translations)
+    return out_bvec, out_tran
 
 
 def _extract(in_files, ref_num=0):
@@ -309,3 +389,10 @@ def _extract(in_files, ref_num=0):
     out = list(in_files)
     del out[ref_num]
     return out
+
+
+def _insert_b0(in_b0, in_files, pos=0):
+    import numpy as np
+    out_files = np.atleast_1d(in_files).tolist()
+    out_files.insert(pos, in_b0)
+    return out_files
