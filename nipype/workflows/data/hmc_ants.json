@@ -1,0 +1,18 @@
+{
+    "convergence_window_size": [20],
+    "transform_parameters": [[1.0]],
+    "number_of_iterations": [[500]],
+    "convergence_threshold": [1e-07],
+    "sampling_strategy": ["Random"],
+    "use_estimate_learning_rate_once": [true],
+    "shrink_factors": [[1]],
+    "metric_weight": [1.0],
+    "winsorize_upper_quantile": 0.975,
+    "transforms": ["Rigid"],
+    "initial_moving_transform_com": 0,
+    "smoothing_sigmas": [[0.0]],
+    "use_histogram_matching": [true],
+    "sampling_percentage": [0.6],
+    "metric": ["GC"],
+    "sigma_units": ["vox"]
+}

@@ -7,9 +7,13 @@ import os.path as op
 def get_flirt_schedule(name):
     if name == 'ecc':
         return op.abspath(op.join(op.dirname(__file__),
-                          'ecc.sch'))
+                                  'ecc.sch'))
     elif name == 'hmc':
         return op.abspath(op.join(op.dirname(__file__),
-                          'hmc.sch'))
+                                  'hmc.sch'))
     else:
         raise RuntimeError('Requested file does not exist.')
+
+
+def get_ants_hmc():
+    return op.abspath(op.join(op.dirname(__file__), 'hmc_ants.json'))

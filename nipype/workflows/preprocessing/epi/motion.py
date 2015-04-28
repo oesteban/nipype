@@ -256,6 +256,8 @@ def _ants_4d(name='DWICoregistration'):
     from nipype.interfaces import freesurfer as fs
     from nipype.interfaces import ants
     from nipype.interfaces import fsl
+    from nipype.interfaces.io import JSONFileGrabber
+    from nipype.workflows.data import get_ants_hmc
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['reference', 'moving', 'ref_mask']),
@@ -267,26 +269,11 @@ def _ants_4d(name='DWICoregistration'):
     refth = pe.Node(fsl.Threshold(thresh=0.0), name='ReferenceThres')
 
     reg = pe.MapNode(
-        ants.Registration(output_warped_image=True),
+        ants.Registration(output_warped_image=True, dimension=3),
         iterfield=['moving_image'], name="dwi_to_b0")
 
-    reg.inputs.transforms = ['Rigid']
-    reg.inputs.transform_parameters = [(2.,)]
-    reg.inputs.number_of_iterations = [[500]]
-    reg.inputs.dimension = 3
-    reg.inputs.metric = ['GC']
-    reg.inputs.metric_weight = [1.0]
-    # reg.inputs.radius_or_number_of_bins = [4]
-    reg.inputs.sampling_strategy = ['Random']
-    reg.inputs.sampling_percentage = [0.4]
-    reg.inputs.convergence_threshold = [1.e-7]
-    reg.inputs.convergence_window_size = [20]
-    reg.inputs.smoothing_sigmas = [[0.0]]
-    reg.inputs.sigma_units = ['vox']
-    reg.inputs.shrink_factors = [[1]]
-    reg.inputs.use_estimate_learning_rate_once = [True]
-    reg.inputs.use_histogram_matching = [False]
-    reg.inputs.initial_moving_transform_com = 0
+    settings = pe.Node(
+        JSONFileGrabber(in_file=get_ants_hmc()), name='Settings')
 
     thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
                        name='RemoveNegative')
@@ -305,7 +292,25 @@ def _ants_4d(name='DWICoregistration'):
         (reg,        thres,      [('warped_image', 'in_file')]),
         (thres,      outputnode, [('out_file', 'out_files')]),
         (reg,        outputnode, [('reverse_transforms', 'out_xfms')]),
-        (refth,      outputnode, [('out_file', 'out_ref')])
+        (refth,      outputnode, [('out_file', 'out_ref')]),
+        (settings,   reg,        [
+            ('transforms', 'transforms'),
+            ('transform_parameters', 'transform_parameters'),
+            ('number_of_iterations', 'number_of_iterations'),
+            ('metric', 'metric'),
+            ('metric_weight', 'metric_weight'),
+            ('sampling_strategy', 'sampling_strategy'),
+            ('sampling_percentage', 'sampling_percentage'),
+            ('convergence_threshold', 'convergence_threshold'),
+            ('convergence_window_size', 'convergence_window_size'),
+            ('smoothing_sigmas', 'smoothing_sigmas'),
+            ('sigma_units', 'sigma_units'),
+            ('shrink_factors', 'shrink_factors'),
+            ('use_estimate_learning_rate_once',
+             'use_estimate_learning_rate_once'),
+            ('use_histogram_matching', 'use_histogram_matching'),
+            ('initial_moving_transform_com', 'initial_moving_transform_com'),
+            ('winsorize_upper_quantile', 'winsorize_upper_quantile')])
     ])
     return wf
 
