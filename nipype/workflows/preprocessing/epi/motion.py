@@ -81,11 +81,6 @@ should be taken as reference
         name='inputnode')
 
     split = pe.Node(fsl.Split(dimension='t'), name='Split4D')
-    selref = pe.Node(niu.Select(), name='ExtractReference')
-    selmov = pe.Node(niu.Function(
-        function=_extract, output_names=['out'],
-        input_names=['in_files', 'ref_num']), name='ExtractMoving')
-
     reg = _ants_4d()
 
     insb0 = pe.Node(niu.Function(
@@ -101,13 +96,9 @@ should be taken as reference
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,  split,      [('in_file', 'in_file')]),
-        (split,      selref,     [('out_files', 'inlist')]),
-        (inputnode,  selref,     [('ref_num', 'index')]),
-        (split,      selmov,     [('out_files', 'in_files')]),
-        (inputnode,  selmov,     [('ref_num', 'ref_num')]),
-        (inputnode,  reg,        [('in_mask', 'inputnode.ref_mask')]),
-        (selref,     reg,        [('out', 'inputnode.reference')]),
-        (selmov,     reg,        [('out', 'inputnode.moving')]),
+        (inputnode,  reg,        [('ref_num', 'inputnode.ref_num'),
+                                  ('in_mask', 'inputnode.ref_mask')]),
+        (split,      reg,        [('out_files', 'inputnode.in_files')]),
         (reg,        insb0,      [('outputnode.out_files', 'in_files')]),
         (inputnode,  insb0,      [('ref_num', 'pos')]),
         (reg,        insb0,      [('outputnode.out_ref', 'in_b0')]),
@@ -262,12 +253,30 @@ def _ants_4d(name='DWICoregistration'):
     settings = pe.Node(
         JSONFileGrabber(in_file=get_ants_hmc()), name='Settings')
 
+    enh = pe.MapNode(niu.Function(
+        function=_enhance, input_names=['in_file'], output_names=['out_file']),
+        name='Enhance', iterfield=['in_file'])
+
+    dilate = pe.Node(fsl.maths.MathsCommand(
+        nan2zeros=True, args='-kernel sphere 5 -dilM'), name='MskDilate')
+
+    selb0 = pe.Node(niu.Select(), name='SelectRef')
+
     schedule = pe.Node(niu.Function(
         function=_ants_schedule, input_names=['in_files', 'ref_num'],
         output_names=['fixed_image', 'moving_image']), name='Schedule')
     reg = pe.MapNode(
-        ants.Registration(output_warped_image=True, dimension=3),
+        ants.Registration(output_warped_image=True, dimension=3,
+                          collapse_output_transforms=True),
         iterfield=['fixed_image', 'moving_image'], name="Registration4D")
+
+    sortxfm = pe.Node(niu.Function(
+        function=_ants_concatxfm, input_names=['in_files', 'ref_num'],
+        output_names=['out_files']), name='SortXFMs')
+
+    xfm = pe.MapNode(
+        ants.ApplyTransforms(dimension=3),
+        iterfield=['transforms', 'input_image'], name="ApplyTransforms")
 
     thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
                        name='RemoveNegative')
@@ -277,14 +286,23 @@ def _ants_4d(name='DWICoregistration'):
 
     wf = pe.Workflow(name=name)
     wf.connect([
-        (inputnode,  schedule,   [('in_files', 'in_files'),
-                                  ('ref_num', 'ref_num')]),
+        (inputnode,  dilate,     [('ref_mask', 'in_file')]),
+        (inputnode,  enh,        [('in_files', 'in_file')]),
+        (inputnode,  selb0,      [('ref_num', 'index')]),
+        (enh,        selb0,      [('out_file', 'inlist')]),
+        (inputnode,  schedule,   [('ref_num', 'ref_num')]),
+        (enh,        schedule,   [('out_file', 'in_files')]),
+        (inputnode,  sortxfm,    [('ref_num', 'ref_num')]),
+        (dilate,     reg,        [('out_file', 'fixed_image_mask')]),
         (schedule,   reg,        [('fixed_image', 'fixed_image'),
                                   ('moving_image', 'moving_image')]),
+        (reg,        sortxfm,    [('forward_transforms', 'in_files')]),
+        (selb0,      xfm,        [('out', 'reference_image')]),
+        (schedule,   xfm,        [('moving_image', 'input_image')]),
+        (sortxfm,    xfm,        [('out_files', 'transforms')]),
         (reg,        thres,      [('warped_image', 'in_file')]),
         (thres,      outputnode, [('out_file', 'out_files')]),
         (reg,        outputnode, [('reverse_transforms', 'out_xfms')]),
-        (refth,      outputnode, [('out_file', 'out_ref')]),
         (settings,   reg,        [
             ('transforms', 'transforms'),
             ('transform_parameters', 'transform_parameters'),
@@ -302,9 +320,29 @@ def _ants_4d(name='DWICoregistration'):
              'use_estimate_learning_rate_once'),
             ('use_histogram_matching', 'use_histogram_matching'),
             ('initial_moving_transform_com', 'initial_moving_transform_com'),
-            ('winsorize_upper_quantile', 'winsorize_upper_quantile')])
+            ('radius_or_number_of_bins', 'radius_or_number_of_bins'),
+            ('num_threads', 'num_threads')
+            # ('winsorize_upper_quantile', 'winsorize_upper_quantile')
+        ])
     ])
     return wf
+
+
+def _enhance(in_file):
+    import nibabel as nb
+    import numpy as np
+    import os.path as op
+
+    im = nb.load(in_file)
+    data = im.get_data()
+    data[data < 0] = 0
+    thres = np.percentile(data[data > 0.0], 99.98)
+    data[data > thres] = thres
+
+    out_file = op.abspath('enhanced.nii.gz')
+    nb.Nifti1Image(data.astype(np.float32), im.get_affine(),
+                   im.get_header()).to_filename(out_file)
+    return out_file
 
 
 def _ants_schedule(in_files, ref_num=0):
@@ -322,8 +360,21 @@ def _ants_schedule(in_files, ref_num=0):
         fixed_image = fixed_image[1:-1]
         moving_image = moving_image[:ref_num] + \
             moving_image[ref_num + 1:]
-
     return fixed_image, moving_image
+
+
+def _ants_concatxfm(in_files, ref_num=0):
+    import numpy as np
+    out_files = []
+
+    if ref_num == 0:
+        for i in range(len(in_files) - 1):
+            out_files.append(
+                np.ravel(list(reversed(in_files[:i + 1]))).tolist())
+    elif ref_num == len(in_files) - 1:
+        for i in range(len(in_files) - 1):
+            out_files.append(np.ravel(list(in_files[i:-1])).tolist())
+    return out_files
 
 
 def _ants_rotate_bvecs(name='BmatrixRotation'):

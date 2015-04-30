@@ -1,10 +1,18 @@
-"""ANTS Apply Transforms interface
+# coding: utf-8
+# emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
+# vi: set ft=python sts=4 ts=4 sw=4 et:
+"""
+ANTS Apply Transforms interface
+
+.. doctest::
+   :hide:
 
    Change directory to provide relative paths for doctests
    >>> import os
    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
    >>> os.chdir(datadir)
+
 """
 import os
 
