@@ -92,10 +92,6 @@ should be taken as reference
         function=_insert_b0, input_names=['in_b0', 'in_files', 'pos'],
         output_names=['out_files']), name='InsertB0')
 
-    insmat = pe.Node(niu.Function(input_names=['inlist', 'volid'],
-                                  output_names=['out'], function=insert_mat),
-                     name='InsertRefmat')
-
     rot_bvec = _ants_rotate_bvecs()
 
     merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWI')
@@ -263,8 +259,6 @@ def _ants_4d(name='DWICoregistration'):
         fields=['reference', 'moving', 'ref_mask']),
         name='inputnode')
 
-    dilate = pe.Node(fsl.maths.MathsCommand(
-        nan2zeros=True, args='-kernel sphere 5 -dilM'), name='MskDilate')
     n4 = pe.Node(ants.N4BiasFieldCorrection(dimension=3), name='Bias')
     refth = pe.Node(fsl.Threshold(thresh=0.0), name='ReferenceThres')
 
@@ -283,7 +277,6 @@ def _ants_4d(name='DWICoregistration'):
 
     wf = pe.Workflow(name=name)
     wf.connect([
-        (inputnode,  dilate,     [('ref_mask', 'in_file')]),
         (inputnode,  n4,         [('reference', 'input_image'),
                                   ('ref_mask', 'mask_image')]),
         (n4,         refth,      [('output_image', 'in_file')]),
