@@ -256,18 +256,18 @@ def _ants_4d(name='DWICoregistration'):
     from nipype.workflows.data import get_ants_hmc
 
     inputnode = pe.Node(niu.IdentityInterface(
-        fields=['reference', 'moving', 'ref_mask']),
+        fields=['in_files', 'ref_mask', 'ref_num']),
         name='inputnode')
-
-    n4 = pe.Node(ants.N4BiasFieldCorrection(dimension=3), name='Bias')
-    refth = pe.Node(fsl.Threshold(thresh=0.0), name='ReferenceThres')
-
-    reg = pe.MapNode(
-        ants.Registration(output_warped_image=True, dimension=3),
-        iterfield=['moving_image'], name="dwi_to_b0")
 
     settings = pe.Node(
         JSONFileGrabber(in_file=get_ants_hmc()), name='Settings')
+
+    schedule = pe.Node(niu.Function(
+        function=_ants_schedule, input_names=['in_files', 'ref_num'],
+        output_names=['fixed_image', 'moving_image']), name='Schedule')
+    reg = pe.MapNode(
+        ants.Registration(output_warped_image=True, dimension=3),
+        iterfield=['fixed_image', 'moving_image'], name="Registration4D")
 
     thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
                        name='RemoveNegative')
@@ -277,11 +277,10 @@ def _ants_4d(name='DWICoregistration'):
 
     wf = pe.Workflow(name=name)
     wf.connect([
-        (inputnode,  n4,         [('reference', 'input_image'),
-                                  ('ref_mask', 'mask_image')]),
-        (n4,         refth,      [('output_image', 'in_file')]),
-        (refth,      reg,        [('out_file', 'fixed_image')]),
-        (inputnode,  reg,        [('moving', 'moving_image')]),
+        (inputnode,  schedule,   [('in_files', 'in_files'),
+                                  ('ref_num', 'ref_num')]),
+        (schedule,   reg,        [('fixed_image', 'fixed_image'),
+                                  ('moving_image', 'moving_image')]),
         (reg,        thres,      [('warped_image', 'in_file')]),
         (thres,      outputnode, [('out_file', 'out_files')]),
         (reg,        outputnode, [('reverse_transforms', 'out_xfms')]),
@@ -306,6 +305,25 @@ def _ants_4d(name='DWICoregistration'):
             ('winsorize_upper_quantile', 'winsorize_upper_quantile')])
     ])
     return wf
+
+
+def _ants_schedule(in_files, ref_num=0):
+    fixed_image = list(in_files)
+    moving_image = list(in_files)
+
+    if ref_num == 0:
+        fixed_image = fixed_image[:-1]
+        moving_image = moving_image[1:]
+    elif ref_num == len(in_files) - 1:
+        fixed_image = list(reversed(fixed_image[:-1]))
+        moving_image = list(reversed(moving_image[1:]))
+    else:
+        fixed_image.insert(ref_num, fixed_image[ref_num])
+        fixed_image = fixed_image[1:-1]
+        moving_image = moving_image[:ref_num] + \
+            moving_image[ref_num + 1:]
+
+    return fixed_image, moving_image
 
 
 def _ants_rotate_bvecs(name='BmatrixRotation'):
