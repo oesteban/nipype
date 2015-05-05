@@ -82,11 +82,6 @@ should be taken as reference
 
     split = pe.Node(fsl.Split(dimension='t'), name='Split4D')
     reg = _ants_4d()
-
-    insb0 = pe.Node(niu.Function(
-        function=_insert_b0, input_names=['in_b0', 'in_files', 'pos'],
-        output_names=['out_files']), name='InsertB0')
-
     rot_bvec = _ants_rotate_bvecs()
 
     merge = pe.Node(fsl.Merge(dimension='t'), name='MergeDWI')
@@ -99,10 +94,7 @@ should be taken as reference
         (inputnode,  reg,        [('ref_num', 'inputnode.ref_num'),
                                   ('in_mask', 'inputnode.ref_mask')]),
         (split,      reg,        [('out_files', 'inputnode.in_files')]),
-        (reg,        insb0,      [('outputnode.out_files', 'in_files')]),
-        (inputnode,  insb0,      [('ref_num', 'pos')]),
-        (reg,        insb0,      [('outputnode.out_ref', 'in_b0')]),
-        (insb0,      merge,      [('out_files', 'in_files')]),
+        (reg,        merge,      [('outputnode.out_files', 'in_files')]),
         (inputnode,  rot_bvec,   [('in_bvec', 'inputnode.in_bvec'),
                                   ('ref_num', 'inputnode.ref_num')]),
         (reg,        rot_bvec,   [
@@ -233,7 +225,7 @@ def hmc_split(in_file, ref_num=0, lowbval=5.0):
     return (out_ref, out_mov)
 
 
-def _ants_4d(name='DWICoregistration'):
+def _ants_4d(name='DWICoregistration', denoise=False):
     """
     Generates a workflow for rigid registration of dwi volumes
     using ants
@@ -243,12 +235,12 @@ def _ants_4d(name='DWICoregistration'):
     from nipype.interfaces import freesurfer as fs
     from nipype.interfaces import ants
     from nipype.interfaces import fsl
+    from nipype.interfaces.dipy import Denoise
     from nipype.interfaces.io import JSONFileGrabber
     from nipype.workflows.data import get_ants_hmc
 
     inputnode = pe.Node(niu.IdentityInterface(
-        fields=['in_files', 'ref_mask', 'ref_num']),
-        name='inputnode')
+        fields=['in_files', 'ref_mask', 'ref_num']), name='inputnode')
 
     settings = pe.Node(
         JSONFileGrabber(in_file=get_ants_hmc()), name='Settings')
@@ -260,49 +252,67 @@ def _ants_4d(name='DWICoregistration'):
     dilate = pe.Node(fsl.maths.MathsCommand(
         nan2zeros=True, args='-kernel sphere 5 -dilM'), name='MskDilate')
 
-    selb0 = pe.Node(niu.Select(), name='SelectRef')
-
-    schedule = pe.Node(niu.Function(
+    selref0 = pe.Node(niu.Select(), name='SelectRef0')
+    sch0 = pe.Node(niu.Function(
         function=_ants_schedule, input_names=['in_files', 'ref_num'],
-        output_names=['fixed_image', 'moving_image']), name='Schedule')
+        output_names=['fixed_image', 'moving_image']), name='Schedule0')
+
     reg = pe.MapNode(
         ants.Registration(output_warped_image=True, dimension=3,
                           collapse_output_transforms=True),
         iterfield=['fixed_image', 'moving_image'], name="Registration4D")
 
-    sortxfm = pe.Node(niu.Function(
+    sortxfm0 = pe.Node(niu.Function(
         function=_ants_concatxfm, input_names=['in_files', 'ref_num'],
-        output_names=['out_files']), name='SortXFMs')
+        output_names=['out_files']), name='SortXFMsFW')
+
+    selref1 = pe.Node(niu.Select(), name='SelectRef1')
+    sch1 = pe.Node(niu.Function(
+        function=_ants_schedule, input_names=['in_files', 'ref_num'],
+        output_names=['fixed_image', 'moving_image']), name='Schedule1')
 
     xfm = pe.MapNode(
         ants.ApplyTransforms(dimension=3),
         iterfield=['transforms', 'input_image'], name="ApplyTransforms")
 
-    thres = pe.MapNode(fsl.Threshold(thresh=0.0), iterfield=['in_file'],
-                       name='RemoveNegative')
+    insref = pe.Node(niu.Function(
+        function=_insertref, input_names=['reference', 'in_files', 'pos'],
+        output_names=['out_files']), name='InsertRef')
 
     outputnode = pe.Node(niu.IdentityInterface(
-        fields=['out_files', 'out_ref', 'out_xfms']), name='outputnode')
+        fields=['out_files', 'out_xfms']),
+        name='outputnode')
 
     wf = pe.Workflow(name=name)
     wf.connect([
         (inputnode,  dilate,     [('ref_mask', 'in_file')]),
         (inputnode,  enh,        [('in_files', 'in_file')]),
-        (inputnode,  selb0,      [('ref_num', 'index')]),
-        (enh,        selb0,      [('out_file', 'inlist')]),
-        (inputnode,  schedule,   [('ref_num', 'ref_num')]),
-        (enh,        schedule,   [('out_file', 'in_files')]),
-        (inputnode,  sortxfm,    [('ref_num', 'ref_num')]),
+        (inputnode,  selref0,    [('ref_num', 'index')]),
+        (enh,        selref0,    [('out_file', 'inlist')]),
+        (inputnode,  sch0,       [('ref_num', 'ref_num')]),
+        (enh,        sch0,       [('out_file', 'in_files')]),
+        (inputnode,  sortxfm0,   [('ref_num', 'ref_num')]),
         (dilate,     reg,        [('out_file', 'fixed_image_mask')]),
-        (schedule,   reg,        [('fixed_image', 'fixed_image'),
+        (sch0,       reg,        [('fixed_image', 'fixed_image'),
                                   ('moving_image', 'moving_image')]),
-        (reg,        sortxfm,    [('forward_transforms', 'in_files')]),
-        (selb0,      xfm,        [('out', 'reference_image')]),
-        (schedule,   xfm,        [('moving_image', 'input_image')]),
-        (sortxfm,    xfm,        [('out_files', 'transforms')]),
-        (reg,        thres,      [('warped_image', 'in_file')]),
-        (thres,      outputnode, [('out_file', 'out_files')]),
-        (reg,        outputnode, [('reverse_transforms', 'out_xfms')]),
+        (reg,        sortxfm0,   [('forward_transforms', 'in_files')]),
+
+        (sortxfm0,   outputnode, [('out_files', 'out_xfms')]),
+        (inputnode,  selref1,    [('in_files', 'inlist'),
+                                  ('ref_num', 'index')]),
+        (inputnode,  sch1,       [('in_files', 'in_files'),
+                                  ('ref_num', 'ref_num')]),
+        (selref1,    xfm,        [('out', 'reference_image')]),
+        (sch1,       xfm,        [('moving_image', 'input_image')]),
+        (sortxfm0,   xfm,        [('out_files', 'transforms')]),
+        (xfm,        insref,     [('output_image', 'in_files')]),
+        (inputnode,  insref,     [('ref_num', 'pos')]),
+        (selref1,    insref,     [('out', 'reference')]),
+        (insref,     outputnode, [('out_files', 'out_files')])
+    ])
+
+    # connect settings to registration
+    wf.connect([
         (settings,   reg,        [
             ('transforms', 'transforms'),
             ('transform_parameters', 'transform_parameters'),
@@ -368,12 +378,13 @@ def _ants_concatxfm(in_files, ref_num=0):
     out_files = []
 
     if ref_num == 0:
-        for i in range(len(in_files) - 1):
+        for i in range(len(in_files)):
             out_files.append(
                 np.ravel(list(reversed(in_files[:i + 1]))).tolist())
     elif ref_num == len(in_files) - 1:
-        for i in range(len(in_files) - 1):
-            out_files.append(np.ravel(list(in_files[i:-1])).tolist())
+        for i in range(len(in_files)):
+            f = list(reversed(in_files))
+            out_files = _ants_concatxfm(f)
     return out_files
 
 
@@ -382,6 +393,12 @@ def _ants_rotate_bvecs(name='BmatrixRotation'):
     from nipype.interfaces import utility as niu
     from nipype.algorithms import misc as nam
     from nipype.interfaces import ants
+
+    def _reverse(inlist):
+        return [list(reversed(sub)) for sub in inlist]
+
+    def _gen_flags(inlist):
+        return [[True] * len(el) for el in inlist]
 
     inputnode = pe.Node(niu.IdentityInterface(
         fields=['in_bvec', 'in_xfms', 'ref_num']), name='inputnode')
@@ -392,9 +409,10 @@ def _ants_rotate_bvecs(name='BmatrixRotation'):
         function=_bvecs2csv, input_names=['in_bvec'],
         output_names=['out_files']), name='Bvecs2CSV')
 
-    xfm = pe.MapNode(ants.ApplyTransformsToPoints(dimension=3),
-                     iterfield=['input_file', 'transforms'],
-                     name='RotateBvec')
+    xfm = pe.MapNode(ants.ApplyTransformsToPoints(
+        dimension=3), iterfield=['input_file', 'transforms',
+                                 'invert_transform_flags'],
+        name='RotateBvec')
     tobvec = pe.Node(niu.Function(
         function=_csv2bvecs, input_names=['inlist', 'ref_num'],
         output_names=['out_bvec', 'out_tran']), name='GenBmatrix')
@@ -403,7 +421,9 @@ def _ants_rotate_bvecs(name='BmatrixRotation'):
     wf.connect([
         (inputnode,  tocsv,      [('in_bvec', 'in_bvec')]),
         (tocsv,      xfm,        [('out_files', 'input_file')]),
-        (inputnode,  xfm,        [('in_xfms', 'transforms')]),
+        (inputnode,  xfm,        [(('in_xfms', _reverse), 'transforms'),
+                                  (('in_xfms', _gen_flags),
+                                   'invert_transform_flags')]),
         (xfm,        tobvec,     [('output_file', 'inlist')]),
         (inputnode,  tobvec,     [('ref_num', 'ref_num')]),
         (tobvec,     outputnode, [('out_bvec', 'out_bvec'),
@@ -458,8 +478,8 @@ def _extract(in_files, ref_num=0):
     return out
 
 
-def _insert_b0(in_b0, in_files, pos=0):
+def _insertref(reference, in_files, pos=0):
     import numpy as np
     out_files = np.atleast_1d(in_files).tolist()
-    out_files.insert(pos, in_b0)
+    out_files.insert(pos, reference)
     return out_files
