@@ -1109,6 +1109,75 @@ connected.
         return ('\n' + prefix).join(dotlist)
 
 
+class ConditionalWorkflow(WorkflowBase):
+    """Implements workflows with conditional execution.
+
+    """
+    def _generate_flatgraph(self):
+        """Generate a graph containing only Nodes or MapNodes
+        """
+        logger.debug('expanding workflow: %s', self)
+        nodes2remove = []
+        if not nx.is_directed_acyclic_graph(self._graph):
+            raise Exception(('Workflow: %s is not a directed acyclic graph '
+                             '(DAG)') % self.name)
+        nodes = nx.topological_sort(self._graph)
+        for node in nodes:
+            logger.debug('processing node: %s' % node)
+            if isinstance(node, Workflow):
+                nodes2remove.append(node)
+                # use in_edges instead of in_edges_iter to allow
+                # disconnections to take place properly. otherwise, the
+                # edge dict is modified.
+                for u, _, d in self._graph.in_edges(nbunch=node, data=True):
+                    logger.debug('in: connections-> %s' % str(d['connect']))
+                    for cd in deepcopy(d['connect']):
+                        logger.debug("in: %s" % str(cd))
+                        dstnode = node._get_parameter_node(cd[1], subtype='in')
+                        srcnode = u
+                        srcout = cd[0]
+                        dstin = cd[1].split('.')[-1]
+                        logger.debug('in edges: %s %s %s %s' %
+                                     (srcnode, srcout, dstnode, dstin))
+                        self.disconnect(u, cd[0], node, cd[1])
+                        self.connect(srcnode, srcout, dstnode, dstin)
+                # do not use out_edges_iter for reasons stated in in_edges
+                for _, v, d in self._graph.out_edges(nbunch=node, data=True):
+                    logger.debug('out: connections-> %s' % str(d['connect']))
+                    for cd in deepcopy(d['connect']):
+                        logger.debug("out: %s" % str(cd))
+                        dstnode = v
+                        if isinstance(cd[0], tuple):
+                            parameter = cd[0][0]
+                        else:
+                            parameter = cd[0]
+                        srcnode = node._get_parameter_node(parameter,
+                                                           subtype='out')
+                        if isinstance(cd[0], tuple):
+                            srcout = list(cd[0])
+                            srcout[0] = parameter.split('.')[-1]
+                            srcout = tuple(srcout)
+                        else:
+                            srcout = parameter.split('.')[-1]
+                        dstin = cd[1]
+                        logger.debug('out edges: %s %s %s %s' % (srcnode,
+                                                                 srcout,
+                                                                 dstnode,
+                                                                 dstin))
+                        self.disconnect(node, cd[0], v, cd[1])
+                        self.connect(srcnode, srcout, dstnode, dstin)
+                # expand the workflow node
+                # logger.debug('expanding workflow: %s', node)
+                node._generate_flatgraph()
+                for innernode in node._graph.nodes():
+                    innernode._hierarchy = '.'.join((self.name,
+                                                     innernode._hierarchy))
+                self._graph.add_nodes_from(node._graph.nodes())
+                self._graph.add_edges_from(node._graph.edges(data=True))
+        if nodes2remove:
+            self._graph.remove_nodes_from(nodes2remove)
+        logger.debug('finished expanding workflow: %s', self)
+
 class Node(WorkflowBase):
     """Wraps interface objects for use in pipeline
 
