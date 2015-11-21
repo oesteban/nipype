@@ -53,6 +53,7 @@ from ..interfaces.base import (traits, InputMultiPath, CommandLine,
                                Undefined, TraitedSpec, DynamicTraitedSpec,
                                Bunch, InterfaceResult, md5, Interface,
                                TraitDictObject, TraitListObject, isdefined)
+from ..interfaces import IdentityInterface
 from ..utils.misc import (getsource, create_function_from_source,
                           flatten, unflatten)
 from ..utils.filemanip import (save_json, FileNotFoundError,
@@ -1109,74 +1110,102 @@ connected.
         return ('\n' + prefix).join(dotlist)
 
 
-class ConditionalWorkflow(WorkflowBase):
-    """Implements workflows with conditional execution.
-
+class ConditionalWorkflow(Workflow):
     """
-    def _generate_flatgraph(self):
-        """Generate a graph containing only Nodes or MapNodes
+    Implements a kind of workflow that is executed depending on whether
+    a control input is set or not."""
+
+    def __init__(self, name, base_dir=None, condition_map=[]):
+        """Create a workflow object.
+
+        Parameters
+        ----------
+        name : alphanumeric string
+            unique identifier for the workflow
+        base_dir : string, optional
+            path to workflow storage
+
         """
-        logger.debug('expanding workflow: %s', self)
-        nodes2remove = []
-        if not nx.is_directed_acyclic_graph(self._graph):
-            raise Exception(('Workflow: %s is not a directed acyclic graph '
-                             '(DAG)') % self.name)
-        nodes = nx.topological_sort(self._graph)
-        for node in nodes:
-            logger.debug('processing node: %s' % node)
-            if isinstance(node, Workflow):
-                nodes2remove.append(node)
-                # use in_edges instead of in_edges_iter to allow
-                # disconnections to take place properly. otherwise, the
-                # edge dict is modified.
-                for u, _, d in self._graph.in_edges(nbunch=node, data=True):
-                    logger.debug('in: connections-> %s' % str(d['connect']))
-                    for cd in deepcopy(d['connect']):
-                        logger.debug("in: %s" % str(cd))
-                        dstnode = node._get_parameter_node(cd[1], subtype='in')
-                        srcnode = u
-                        srcout = cd[0]
-                        dstin = cd[1].split('.')[-1]
-                        logger.debug('in edges: %s %s %s %s' %
-                                     (srcnode, srcout, dstnode, dstin))
-                        self.disconnect(u, cd[0], node, cd[1])
-                        self.connect(srcnode, srcout, dstnode, dstin)
-                # do not use out_edges_iter for reasons stated in in_edges
-                for _, v, d in self._graph.out_edges(nbunch=node, data=True):
-                    logger.debug('out: connections-> %s' % str(d['connect']))
-                    for cd in deepcopy(d['connect']):
-                        logger.debug("out: %s" % str(cd))
-                        dstnode = v
-                        if isinstance(cd[0], tuple):
-                            parameter = cd[0][0]
-                        else:
-                            parameter = cd[0]
-                        srcnode = node._get_parameter_node(parameter,
-                                                           subtype='out')
-                        if isinstance(cd[0], tuple):
-                            srcout = list(cd[0])
-                            srcout[0] = parameter.split('.')[-1]
-                            srcout = tuple(srcout)
-                        else:
-                            srcout = parameter.split('.')[-1]
-                        dstin = cd[1]
-                        logger.debug('out edges: %s %s %s %s' % (srcnode,
-                                                                 srcout,
-                                                                 dstnode,
-                                                                 dstin))
-                        self.disconnect(node, cd[0], v, cd[1])
-                        self.connect(srcnode, srcout, dstnode, dstin)
-                # expand the workflow node
-                # logger.debug('expanding workflow: %s', node)
-                node._generate_flatgraph()
-                for innernode in node._graph.nodes():
-                    innernode._hierarchy = '.'.join((self.name,
-                                                     innernode._hierarchy))
-                self._graph.add_nodes_from(node._graph.nodes())
-                self._graph.add_edges_from(node._graph.edges(data=True))
-        if nodes2remove:
-            self._graph.remove_nodes_from(nodes2remove)
-        logger.debug('finished expanding workflow: %s', self)
+
+        super(ConditionalWorkflow, self).__init__(name, base_dir)
+
+        if condition_map is None or not condition_map:
+            raise ValueError('ConditionalWorkflow condition_map must be a '
+                             'non-empty list of tuples')
+
+        if isinstance(condition_map, tuple):
+            condition_map = [condition_map]
+
+        cond_in, cond_out = zip(*condition_map)
+
+        self._condition = Node(IdentityInterface(fields=cond_in),
+                               name='conditions')
+        self.add_nodes([self._condition])
+        self._map = condition_map
+
+    @property
+    def conditions(self):
+        return self._condition.inputs
+
+    def set_condition(self, parameter, val):
+        setattr(self.conditions, parameter, deepcopy(val))
+
+    def run(self, plugin=None, plugin_args=None, updatehash=False):
+        node = self._condition
+        condset = False
+        outputs = []
+        # Detect if conditional input is set
+        for key, dest in self._map:
+            outputs.append(dest)
+            value = getattr(node.inputs, key)
+            if condset and not isdefined(value):
+                raise RuntimeError('One or more conditions are not set')
+            condset = isdefined(value)
+
+        # If so, remove all nodes and copy conditional input to output.
+        if condset:
+            logger.warn('ConditionalWorkflow has conditions set, not running')
+            out_ports = {}
+            for key, trait in self.outputs.items():
+                if 'cond_fields' not in key:
+                    out_ports[key] = [
+                        k for k, v in list(getattr(self.outputs, key).items())]
+            self.remove_nodes(self._graph.nodes())
+
+            nodes = {}
+            out_keys = []
+            for k, v in out_ports.iteritems():
+                for name in v:
+                    out_keys.append('%s.%s' % (k, name))
+                nodes[k] = Node(IdentityInterface(fields=v), name=k)
+
+            for key, dest in self._map:
+                if dest not in out_keys:
+                    raise RuntimeError('Unknown output found when mapping')
+
+                dest = dest.split('.')
+                self.connect(self._condition, key, nodes[dest[0]], dest[1])
+
+        # else, normally run
+        return super(ConditionalWorkflow, self).run(plugin, plugin_args,
+                                                    updatehash)
+
+    def _get_conditions(self):
+        """Returns the conditions of this workflow
+        """
+        node = self._condition
+        condict = TraitedSpec()
+
+        for key, trait in list(node.inputs.items()):
+            condict.add_trait(key, traits.Trait(trait, node=node))
+            value = getattr(node.inputs, key)
+            setattr(condict, key, value)
+
+        return condict
+
+    def _set_condition(self, object, name, newvalue):
+        object.traits()[name].node.set_input(name, newvalue)
+
 
 class Node(WorkflowBase):
     """Wraps interface objects for use in pipeline

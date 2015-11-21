@@ -4,6 +4,7 @@
 from nipype.testing import (assert_raises, assert_equal, assert_true, assert_false)
 import nipype.interfaces.utility as niu
 import nipype.pipeline.engine as pe
+from copy import deepcopy
 
 
 def test_cw_removal_cond_unset():
