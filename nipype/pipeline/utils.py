@@ -485,6 +485,25 @@ def _connect_nodes(graph, srcnode, destnode, connection_info):
         data['connect'].extend(connection_info)
 
 
+def _shortcut_conditional_workflow(graph, node):
+    logger.debug('Found conditioned workflow, node %s' % node)
+    for srcport, dstport in node.condition_map:
+        dstnodename = '%s.%s' % ('.'.join(str(node).split('.')[:-1]),
+                                 dstport.split('.')[0])
+        dstnode = [n for n in graph.nodes() if dstnodename == '%s' % n][0]
+
+        for u, _, d in graph.in_edges_iter(dstnode, data=True):
+            for src, dest in d['connect']:
+                graph.remove_edge(u, dstnode)
+            graph.remove_node(u)
+            logger.debug('Removed node %s' % u)
+
+        info = (srcport, dstport.split('.')[-1])
+        _connect_nodes(graph, node, dstnode, [info])
+
+    return graph
+
+
 def _remove_nonjoin_identity_nodes(graph, keep_iterables=False):
     """Remove non-join identity nodes from the given graph
 
@@ -537,6 +556,7 @@ def _node_ports(graph, node):
     """
     portinputs = {}
     portoutputs = {}
+    logger.debug('Getting ports of %s' % node)
     for u, _, d in graph.in_edges_iter(node, data=True):
         for src, dest in d['connect']:
             portinputs[dest] = (u, src)
@@ -555,6 +575,8 @@ def _node_ports(graph, node):
 def _propagate_root_output(graph, node, field, connections):
     """Propagates the given graph root node output port
     field connections to the out-edge destination nodes."""
+    logger.debug('Propagating node %s, field=%s, conns=%s' % (
+        node, field, connections))
     for destnode, inport, src in connections:
         value = getattr(node.inputs, field)
         if isinstance(src, tuple):
@@ -562,11 +584,17 @@ def _propagate_root_output(graph, node, field, connections):
                                               value)
         destnode.set_input(inport, value)
 
+        if hasattr(destnode, 'condition_map'):
+            if isdefined(value):
+                _shortcut_conditional_workflow(graph, destnode)
+
 
 def _propagate_internal_output(graph, node, field, connections, portinputs):
     """Propagates the given graph internal node output port
     field connections to the out-edge source node and in-edge
     destination nodes."""
+    logger.debug('Propagating node %s, field=%s, conns=%s' % (
+        node, field, connections))
     for destnode, inport, src in connections:
         if field in portinputs:
             srcnode, srcport = portinputs[field]

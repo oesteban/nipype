@@ -1,9 +1,10 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 
-from nipype.testing import (assert_raises, assert_equal, assert_true, assert_false)
-import nipype.interfaces.utility as niu
-import nipype.pipeline.engine as pe
+from nipype.testing import (assert_raises, assert_equal,
+                            assert_true, assert_false)
+from nipype.interfaces import utility as niu
+from nipype.pipeline import engine as pe
 from copy import deepcopy
 
 
@@ -118,12 +119,15 @@ def test_cw_removal_cond_connected_and_set():
         (sumnode, outputnode, [('sum', 'out')])
     ])
 
-    cwf.inputs.inputnode.a = 2
-    cwf.inputs.inputnode.b = 3
-
-    outernode = pe.Node(niu.IdentityInterface(fields=['c']), name='outer')
+    outernode = pe.Node(niu.IdentityInterface(fields=['a', 'b', 'c']),
+                        name='outer')
     wf = pe.Workflow('OuterWorkflow')
-    wf.connect(outernode, 'c', cwf, 'conditions.c')
+    wf.connect([
+        (outernode, cwf, [('a', 'inputnode.a'), ('b', 'inputnode.b'),
+                          ('c', 'conditions.c')])
+    ])
+    outernode.inputs.a = 2
+    outernode.inputs.b = 3
     outernode.inputs.c = 7
 
     fg = wf._create_flat_graph()

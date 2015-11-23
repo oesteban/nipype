@@ -1138,8 +1138,8 @@ class ConditionalWorkflow(Workflow):
 
         cond_in, cond_out = zip(*condition_map)
 
-        self._condition = Node(IdentityInterface(fields=cond_in),
-                               name='conditions')
+        self._condition = ConditionalNode(IdentityInterface(
+            fields=cond_in), condition_map=condition_map, name='conditions')
         self.add_nodes([self._condition])
         self._map = condition_map
 
@@ -1148,6 +1148,8 @@ class ConditionalWorkflow(Workflow):
         return self._condition.inputs
 
     def set_condition(self, parameter, val):
+        logger.debug('setting nodelevel(%s) condition %s = %s' % (
+            str(self), parameter, str(val)))
         setattr(self.conditions, parameter, deepcopy(val))
 
     def run(self, plugin=None, plugin_args=None, updatehash=False):
@@ -1889,6 +1891,13 @@ class Node(WorkflowBase):
                 fp.writelines(write_rst_header('Environment', level=2))
                 fp.writelines(write_rst_dict(self.result.runtime.environ))
         fp.close()
+
+
+class ConditionalNode(Node):
+    def __init__(self, interface, name, condition_map=None,
+                 unique=False, **kwargs):
+        super(ConditionalNode, self).__init__(interface, name, **kwargs)
+        self.condition_map = condition_map
 
 
 class JoinNode(Node):
