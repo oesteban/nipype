@@ -141,7 +141,7 @@ def test_cw_removal_cond_connected_not_set():
         result = json.dumps(json.load(f))
 
     rmtree(op.dirname(tmpfile))
-    yield assert_equal, result, '{"sum": 0}'
+    yield assert_equal, result, '{"sum": 5}'
 
 
 def test_cw_removal_cond_connected_and_set():
@@ -193,5 +193,3 @@ def test_cw_removal_cond_connected_and_set():
 
     rmtree(op.dirname(tmpfile))
     yield assert_equal, result, '{"sum": 7}'
-
-    wf.write_graph(format='pdf')
