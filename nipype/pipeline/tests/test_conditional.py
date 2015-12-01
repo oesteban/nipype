@@ -4,8 +4,13 @@
 from nipype.testing import (assert_raises, assert_equal,
                             assert_true, assert_false)
 from nipype.interfaces import utility as niu
+from nipype.interfaces import io as nio
 from nipype.pipeline import engine as pe
 from copy import deepcopy
+import os.path as op
+from tempfile import mkdtemp
+from shutil import rmtree
+import json
 
 
 def test_cw_removal_cond_unset():
@@ -35,7 +40,19 @@ def test_cw_removal_cond_unset():
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is not set, the sumnode should remain
     yield assert_equal, len(eg.nodes()), 1
+
+    # check result
+    tmpfile = op.join(mkdtemp(), 'result.json')
+    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
+                       out_file=tmpfile), name='sink')
+    cwf.connect([(outputnode, jsonsink, [('out', 'sum')])])
     res = cwf.run()
+
+    with open(tmpfile, 'r') as f:
+        result = json.dumps(json.load(f))
+
+    rmtree(op.dirname(tmpfile))
+    yield assert_equal, result, '{"sum": 5}'
 
 
 def test_cw_removal_cond_set():
@@ -65,7 +82,19 @@ def test_cw_removal_cond_set():
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 0
+
+    # check result
+    tmpfile = op.join(mkdtemp(), 'result.json')
+    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
+                       out_file=tmpfile), name='sink')
+    cwf.connect([(outputnode, jsonsink, [('out', 'sum')])])
     res = cwf.run()
+
+    with open(tmpfile, 'r') as f:
+        result = json.dumps(json.load(f))
+
+    rmtree(op.dirname(tmpfile))
+    yield assert_equal, result, '{"sum": 0}'
 
 
 def test_cw_removal_cond_connected_not_set():
@@ -101,6 +130,8 @@ def test_cw_removal_cond_connected_not_set():
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 1
     res = wf.run()
+    print outputnode.inputs.out
+
 
 
 def test_cw_removal_cond_connected_and_set():
@@ -141,3 +172,4 @@ def test_cw_removal_cond_connected_and_set():
     yield assert_equal, len(eg.nodes()), 0
 
     res = wf.run()
+    print outputnode.inputs.out
