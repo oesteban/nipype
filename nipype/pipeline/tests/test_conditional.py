@@ -193,3 +193,5 @@ def test_cw_removal_cond_connected_and_set():
 
     rmtree(op.dirname(tmpfile))
     yield assert_equal, result, '{"sum": 7}'
+
+    wf.write_graph(format='pdf')

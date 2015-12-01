@@ -1150,7 +1150,6 @@ connected.
                         dstnode = [n for n in allnodes if str(n) == '.'.join(
                             vname1.split('.')[:-1])][0]
                         subnodes = dstnode._graph.nodes()
-                        print subnodes, vname1
                         dstnode = [n for n in subnodes if str(n) == '.'.join(
                             vname1.split('.')[1:])][0]
 
