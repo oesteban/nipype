@@ -850,6 +850,35 @@ connected.
     def _check_inputs(self, parameter):
         return self._has_attr(parameter, subtype='in')
 
+    def _get_node_inputs(self, node, inputdict, onchange=None):
+        """
+        Returns the inputs of a node in a workflow
+        """
+        inputdict.add_trait(node.name, traits.Instance(TraitedSpec))
+        if isinstance(node, Workflow):
+            setattr(inputdict, node.name, node.inputs)
+        else:
+            taken_inputs = []
+            for _, _, d in self._graph.in_edges_iter(nbunch=node,
+                                                     data=True):
+                for cd in d['connect']:
+                    taken_inputs.append(cd[1])
+            unconnectedinputs = TraitedSpec()
+            for key, trait in list(node.inputs.items()):
+                if key not in taken_inputs:
+                    unconnectedinputs.add_trait(key,
+                                                traits.Trait(trait,
+                                                             node=node))
+                    value = getattr(node.inputs, key)
+                    setattr(unconnectedinputs, key, value)
+            setattr(inputdict, node.name, unconnectedinputs)
+
+            # Enable setting custom change hooks
+            if onchange is None:
+                onchange = getattr(self, '_set_input')
+            getattr(inputdict, node.name).on_trait_change(onchange)
+        return inputdict
+
     def _get_inputs(self):
         """Returns the inputs of a workflow
 
@@ -859,24 +888,7 @@ connected.
         inputdict = TraitedSpec()
         for node in self._graph.nodes():
             inputdict.add_trait(node.name, traits.Instance(TraitedSpec))
-            if isinstance(node, Workflow):
-                setattr(inputdict, node.name, node.inputs)
-            else:
-                taken_inputs = []
-                for _, _, d in self._graph.in_edges_iter(nbunch=node,
-                                                         data=True):
-                    for cd in d['connect']:
-                        taken_inputs.append(cd[1])
-                unconnectedinputs = TraitedSpec()
-                for key, trait in list(node.inputs.items()):
-                    if key not in taken_inputs:
-                        unconnectedinputs.add_trait(key,
-                                                    traits.Trait(trait,
-                                                                 node=node))
-                        value = getattr(node.inputs, key)
-                        setattr(unconnectedinputs, key, value)
-                setattr(inputdict, node.name, unconnectedinputs)
-                getattr(inputdict, node.name).on_trait_change(self._set_input)
+            inputdict = self._get_node_inputs(node, inputdict)
         return inputdict
 
     def _get_outputs(self):
@@ -898,6 +910,7 @@ connected.
     def _set_input(self, object, name, newvalue):
         """Trait callback function to update a node input
         """
+        logger.debug('Workflow input set: %s=%s' % (name, newvalue))
         object.traits()[name].node.set_input(name, newvalue)
 
     def _set_node_input(self, node, param, source, sourceinfo):
@@ -1143,16 +1156,32 @@ class ConditionalWorkflow(Workflow):
         self.add_nodes([self._condition])
         self._map = condition_map
 
+    # Input-Output access
+    @property
+    def inputs(self):
+        inputs = self._get_inputs()
+        # remove conditional inputs
+
+        return inputs
+
     @property
     def conditions(self):
-        return self._condition.inputs
+        return self._get_conditions()
 
-    def set_condition(self, parameter, val):
-        logger.debug('setting nodelevel(%s) condition %s = %s' % (
-            str(self), parameter, str(val)))
-        setattr(self.conditions, parameter, deepcopy(val))
+    def _set_condition(self, object, name, newvalue):
+        """Trait callback function to update a node input
+        """
+        object.traits()[name].node.set_input(name, newvalue)
+
+    def write_graph(self, dotfilename='graph.dot', graph2use='hierarchical',
+                    format="png", simple_form=True):
+        self._map_conditional_edges()
+        return super(ConditionalWorkflow, self).write_graph(
+            dotfilename, graph2use, format, simple_form)
 
     def run(self, plugin=None, plugin_args=None, updatehash=False):
+        self._map_conditional_edges()
+
         node = self._condition
         condset = False
         outputs = []
@@ -1197,16 +1226,119 @@ class ConditionalWorkflow(Workflow):
         """
         node = self._condition
         condict = TraitedSpec()
-
-        for key, trait in list(node.inputs.items()):
-            condict.add_trait(key, traits.Trait(trait, node=node))
-            value = getattr(node.inputs, key)
-            setattr(condict, key, value)
-
-        return condict
+        condict.add_trait(node.name, traits.Instance(TraitedSpec))
+        condict = self._get_node_inputs(
+            node, condict, onchange=getattr(self, '_set_condition'))
+        return condict.conditions
 
     def _set_condition(self, object, name, newvalue):
+        logger.debug('Condition set: %s=%s' % (name, newvalue))
         object.traits()[name].node.set_input(name, newvalue)
+
+    def _add_conditional_edge(self, srcnode, srcport, dstnode, dstport):
+        """
+        Add a conditional edge between nodes in the pipeline.
+        Uses the NetworkX method DiGraph.add_edges_from.
+
+        Parameters
+        ----------
+
+
+        """
+
+        if self in [srcnode, dstnode]:
+            msg = ('Workflow connect cannot contain itself as node: src[%s] '
+                   'dest[%s] workflow[%s]') % (srcnode, dstnode, self.name)
+            raise IOError(msg)
+
+        newnodes = [n for n in [srcnode, dstnode] if self._has_node(n)]
+
+        if newnodes:
+            # self._check_nodes(newnodes)
+            for node in newnodes:
+                if node._hierarchy is None:
+                    node._hierarchy = self.name
+
+        not_found = []
+        if not (hasattr(dstnode, '_interface') and
+                '.io' in str(dstnode._interface.__class__)):
+            if not dstnode._check_inputs(dstport):
+                not_found.append(['in', dstnode.name, dstport])
+        if not (hasattr(srcnode, '_interface') and
+                '.io' in str(srcnode._interface.__class__)):
+            if isinstance(srcport, tuple):
+                # handles the case that source is specified
+                # with a function
+                sourcename = srcport[0]
+            elif isinstance(srcport, string_types):
+                sourcename = srcport
+            else:
+                raise Exception(('Unknown source specification in '
+                                 'connection from output of %s') %
+                                srcnode.name)
+            if sourcename and not srcnode._check_outputs(sourcename):
+                not_found.append(['out', srcnode.name, sourcename])
+
+        infostr = []
+        for info in not_found:
+            infostr += ['Module %s has no %sput called %s\n' %
+                        (info[1], info[0], info[2])]
+        if not_found:
+            raise Exception(
+                '\n'.join(['Some connections were not found'] + infostr))
+
+        # turn functions into strings
+        if (isinstance(srcport, tuple) and
+                not isinstance(srcport[1], string_types)):
+            function_source = getsource(src[1])
+            data = [((srcport[0], function_source, srcport[2:]), dstport)]
+        else:
+            data = [(srcport, dstport)]
+
+        # add connections
+        edge_data = self._graph.get_edge_data(srcnode, dstnode, None)
+
+        if edge_data:
+            logger.debug('(%s, %s): Edge data exists: %s'
+                         % (srcnode, dstnode, str(edge_data)))
+
+            if data not in edge_data['connect']:
+                edge_data['connect'].append(connection)
+
+            if edge_data['connect']:
+                self._graph.add_edges_from([(srcnode, dstnode, edge_data)])
+            else:
+                # pass
+                logger.debug('Removing connection: %s->%s' %
+                             (srcnode, dstnode))
+                self._graph.remove_edges_from([(srcnode, dstnode)])
+        else:
+            logger.debug('(%s, %s): No edge data' % (srcnode, dstnode))
+            self._graph.add_edges_from([(srcnode, dstnode,
+                                        {'connect': data})])
+
+        edge_data = self._graph.get_edge_data(srcnode, dstnode)
+        logger.debug('(%s, %s): new edge data: %s' % (srcnode, dstnode,
+                                                      str(edge_data)))
+
+    def _map_conditional_edges(self):
+        logger.debug('ConditionalWorkflow: mapping conditional edges')
+        nodes = self._graph.nodes()
+
+        for conn in self._map:
+            srcnode = self._condition
+            srcport = conn[0]
+            dstnodename = '.'.join([self.name] + conn[1].split('.')[:-1])
+            dstport = conn[1].split('.')[-1]
+            dstnode = [n for n in nodes if str(n) == dstnodename][0]
+
+            if dstnode:
+                logger.debug('New conditional edge (%s, %s): %s -> %s' %
+                             (srcnode, dstnode, srcport, dstport))
+                self._add_conditional_edge(srcnode, srcport, dstnode, dstport)
+            else:
+                raise Exception('Destination node %n not found adding '
+                                'a conditional edge.' % conn[1])
 
 
 class Node(WorkflowBase):

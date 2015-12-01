@@ -486,7 +486,6 @@ def _connect_nodes(graph, srcnode, destnode, connection_info):
 
 
 def _shortcut_conditional_workflow(graph, node):
-    logger.debug('Found conditioned workflow, node %s' % node)
     for srcport, dstport in node.condition_map:
         dstnodename = '%s.%s' % ('.'.join(str(node).split('.')[:-1]),
                                  dstport.split('.')[0])
@@ -501,6 +500,23 @@ def _shortcut_conditional_workflow(graph, node):
         info = (srcport, dstport.split('.')[-1])
         _connect_nodes(graph, node, dstnode, [info])
 
+    return graph
+
+
+def _remove_conditional_nodes(graph):
+    """Remove conditional nodes from the given graph
+
+    Iterable nodes are retained if and only if the keep_iterables
+    flag is set to True.
+    """
+    # if keep_iterables is False, then include the iterable
+    # and join nodes in the nodes to delete
+    logger.debug('Removing conditional nodes')
+    for node in _identity_nodes(graph, True):
+        logger.debug('Checking %s' % node)
+        if hasattr(node, 'condition_map'):
+            logger.debug('Removing %s' % node)
+            _remove_identity_node(graph, node)
     return graph
 
 
@@ -534,6 +550,7 @@ def _remove_identity_node(graph, node):
     """Remove identity nodes from an execution graph
     """
     portinputs, portoutputs = _node_ports(graph, node)
+    logger.debug('Portinputs=%s\n\t Portoutputs=%s' % (portinputs, portoutputs))
     for field, connections in list(portoutputs.items()):
         if portinputs:
             _propagate_internal_output(graph, node, field, connections,
@@ -569,13 +586,25 @@ def _node_ports(graph, node):
             if srcport not in portoutputs:
                 portoutputs[srcport] = []
             portoutputs[srcport].append((v, dest, src))
+
+    if hasattr(node, 'condition_map'):
+        nodes = graph.nodes()
+
+        for src, dest in node.condition_map:
+            wfname = str(node).split('.')[:-1]
+            dstnodename = '.'.join(wfname + dest.split('.')[:-1])
+            matchnodes = [n for n in nodes if ('%s' % n == dstnodename)]
+            if len(matchnodes) == 1:
+                dstnode = matchnodes[0]
+                portoutputs[src] = portoutputs.get(src, [])
+                portoutputs[src].append((dstnode, dest.split('.')[-1], src))
     return (portinputs, portoutputs)
 
 
 def _propagate_root_output(graph, node, field, connections):
     """Propagates the given graph root node output port
     field connections to the out-edge destination nodes."""
-    logger.debug('Propagating node %s, field=%s, conns=%s' % (
+    logger.debug('Propagating root output %s, field=%s, conns=%s' % (
         node, field, connections))
     for destnode, inport, src in connections:
         value = getattr(node.inputs, field)
@@ -585,15 +614,25 @@ def _propagate_root_output(graph, node, field, connections):
         destnode.set_input(inport, value)
 
         if hasattr(destnode, 'condition_map'):
+            msg = 'Found conditioned workflow, node %s.' % destnode
+            msg += ' Field \'%s\'= %s' % (field, value)
+            logger.debug(msg)
             if isdefined(value):
                 _shortcut_conditional_workflow(graph, destnode)
+
+        elif hasattr(node, 'condition_map'):
+            msg = 'Found conditioned workflow, node %s.' % node
+            msg += ' Field \'%s\'= %s' % (field, value)
+            logger.debug(msg)
+            if isdefined(value):
+                _shortcut_conditional_workflow(graph, node)
 
 
 def _propagate_internal_output(graph, node, field, connections, portinputs):
     """Propagates the given graph internal node output port
     field connections to the out-edge source node and in-edge
     destination nodes."""
-    logger.debug('Propagating node %s, field=%s, conns=%s' % (
+    logger.debug('Propagating internal output %s, field=%s, conns=%s' % (
         node, field, connections))
     for destnode, inport, src in connections:
         if field in portinputs:
@@ -630,6 +669,7 @@ def generate_expanded_graph(graph_in):
     parameterized as (a=1,b=3), (a=1,b=4), (a=2,b=3) and (a=2,b=4).
     """
     logger.debug("PE: expanding iterables")
+#    graph_in = _remove_conditional_nodes(graph_in)
     graph_in = _remove_nonjoin_identity_nodes(graph_in, keep_iterables=True)
     # standardize the iterables as {(field, function)} dictionaries
     for node in graph_in.nodes_iter():

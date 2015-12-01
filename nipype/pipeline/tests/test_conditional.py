@@ -30,11 +30,14 @@ def test_cw_removal_cond_unset():
     cwf.inputs.inputnode.a = 2
     cwf.inputs.inputnode.b = 3
 
+    cwf.write_graph(format='pdf')
+
     fg = cwf._create_flat_graph()
     cwf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is not set, the sumnode should remain
     yield assert_equal, len(eg.nodes()), 1
+    res = cwf.run()
 
 
 def test_cw_removal_cond_set():
@@ -60,11 +63,14 @@ def test_cw_removal_cond_set():
     cwf.inputs.inputnode.b = 3
     cwf.conditions.c = 0
 
+    cwf.write_graph(format='pdf')
+
     fg = cwf._create_flat_graph()
     cwf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 0
+    res = cwf.run()
 
 
 def test_cw_removal_cond_connected_not_set():
@@ -96,8 +102,12 @@ def test_cw_removal_cond_connected_not_set():
     fg = wf._create_flat_graph()
     wf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
+
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 1
+
+    wf.write_graph(format='pdf')
+    res = wf.run()
 
 
 def test_cw_removal_cond_connected_and_set():
@@ -133,5 +143,9 @@ def test_cw_removal_cond_connected_and_set():
     fg = wf._create_flat_graph()
     wf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
+
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 0
+
+    wf.write_graph(format='pdf')
+    res = wf.run()
