@@ -491,9 +491,18 @@ def _shortcut_conditional_workflow(graph, node):
                                  dstport.split('.')[0])
         dstnode = [n for n in graph.nodes() if dstnodename == '%s' % n][0]
 
+        rem_edges = []
+        rem_nodes = []
         for u, _, d in graph.in_edges_iter(dstnode, data=True):
             for src, dest in d['connect']:
-                graph.remove_edge(u, dstnode)
+                rem_edges.append((u, dstnode))
+            rem_nodes.append(u)
+
+        for u, v in rem_edges:
+            graph.remove_edge(u, v)
+            logger.debug('Removed edge %s -> %s' % (u, v))
+
+        for u in rem_nodes:
             graph.remove_node(u)
             logger.debug('Removed node %s' % u)
 
