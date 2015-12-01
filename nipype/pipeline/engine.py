@@ -547,6 +547,7 @@ connected.
             else:
                 base_dir = os.getcwd()
         base_dir = make_output_dir(base_dir)
+        self._check_graph()
         if graph2use in ['hierarchical', 'colored']:
             dotfilename = op.join(base_dir, dotfilename)
             self.write_hierarchical_dotfile(dotfilename=dotfilename,
@@ -683,6 +684,7 @@ connected.
             else:
                 plugin_mod = getattr(sys.modules[name], '%sPlugin' % plugin)
                 runner = plugin_mod(plugin_args=plugin_args)
+        self._check_graph()
         flatgraph = self._create_flat_graph()
         self.config = merge_dict(deepcopy(config._sections), self.config)
         if 'crashdump_dir' in self.config:
@@ -966,6 +968,14 @@ connected.
             else:
                 node._hierarchy = self.name
 
+    def _check_graph(self):
+        nodes = nx.topological_sort(self._graph)
+        for node in nodes:
+            if isinstance(node, Workflow):
+                node._check_graph()
+        logger.debug('Workflow %s: graph has been checked.' %
+                     self.name)
+
     def _generate_flatgraph(self):
         """Generate a graph containing only Nodes or MapNodes
         """
@@ -1064,8 +1074,8 @@ connected.
                     else:
                         dotlist.append(('%s[label="%s"];')
                                        % (nodename, node_class_name))
-
-        for node in nx.topological_sort(self._graph):
+        allnodes = nx.topological_sort(self._graph)
+        for node in allnodes:
             if isinstance(node, Workflow):
                 fullname = '.'.join(hierarchy + [node.fullname])
                 nodename = fullname.replace('.', '_')
@@ -1093,8 +1103,13 @@ connected.
                         subnodename = subnodefullname.replace('.', '_')
                         for _ in self._graph.get_edge_data(node,
                                                            subnode)['connect']:
-                            dotlist.append('%s -> %s;' % (nodename,
-                                                          subnodename))
+                            dotlist.append('%s -> %s' %
+                                           (nodename, subnodename))
+
+                            if (hasattr(node, 'condition_map') or
+                                    hasattr(subnode, 'condition_map')):
+                                dotlist[-1] += '[style=dashed]'
+                            dotlist[-1] += ';'
                         logger.debug('connection: ' + dotlist[-1])
         # add between workflow connections
         for u, v, d in self._graph.edges_iter(data=True):
@@ -1117,9 +1132,37 @@ connected.
                     else:
                         vname1 += '.' + '.'.join(dest.split('.')[:-1])
                 if uname1.split('.')[:-1] != vname1.split('.')[:-1]:
-                    dotlist.append('%s -> %s;' % (uname1.replace('.', '_'),
-                                                  vname1.replace('.', '_')))
-                    logger.debug('cross connection: ' + dotlist[-1])
+                    srcnode = [n for n in allnodes if str(n) == uname1]
+                    dstnode = [n for n in allnodes if str(n) == vname1]
+
+                    if len(srcnode) == 1:
+                        srcnode = srcnode[0]
+                    else:
+                        srcnode = [n for n in allnodes if str(n) == '.'.join(
+                            uname1.split('.')[:-1])][0]
+                        subnodes = srcnode._graph.nodes()
+                        srcnode = [n for n in subnodes if str(n) == '.'.join(
+                            uname1.split('.')[1:])][0]
+
+                    if len(dstnode) == 1:
+                        dstnode = dstnode[0]
+                    else:
+                        dstnode = [n for n in allnodes if str(n) == '.'.join(
+                            vname1.split('.')[:-1])][0]
+                        subnodes = dstnode._graph.nodes()
+                        print subnodes, vname1
+                        dstnode = [n for n in subnodes if str(n) == '.'.join(
+                            vname1.split('.')[1:])][0]
+
+                    dotlist.append('%s -> %s' % (uname1.replace('.', '_'),
+                                                 vname1.replace('.', '_')))
+                    if (hasattr(srcnode, 'condition_map') or
+                            hasattr(dstnode, 'condition_map')):
+                        dotlist[-1] += '[style=dashed]'
+                    dotlist[-1] += ';'
+
+                    logger.debug('cross connection: ' + dotlist[-1] +
+                                 'with nodes %s -> %s.' % (srcnode, dstnode))
         return ('\n' + prefix).join(dotlist)
 
 
@@ -1173,53 +1216,9 @@ class ConditionalWorkflow(Workflow):
         """
         object.traits()[name].node.set_input(name, newvalue)
 
-    def write_graph(self, dotfilename='graph.dot', graph2use='hierarchical',
-                    format="png", simple_form=True):
+    def _check_graph(self):
         self._map_conditional_edges()
-        return super(ConditionalWorkflow, self).write_graph(
-            dotfilename, graph2use, format, simple_form)
-
-    def run(self, plugin=None, plugin_args=None, updatehash=False):
-        self._map_conditional_edges()
-
-        node = self._condition
-        condset = False
-        outputs = []
-        # Detect if conditional input is set
-        for key, dest in self._map:
-            outputs.append(dest)
-            value = getattr(node.inputs, key)
-            if condset and not isdefined(value):
-                raise RuntimeError('One or more conditions are not set')
-            condset = isdefined(value)
-
-        # If so, remove all nodes and copy conditional input to output.
-        if condset:
-            logger.warn('ConditionalWorkflow has conditions set, not running')
-            out_ports = {}
-            for key, trait in self.outputs.items():
-                if 'cond_fields' not in key:
-                    out_ports[key] = [
-                        k for k, v in list(getattr(self.outputs, key).items())]
-            self.remove_nodes(self._graph.nodes())
-
-            nodes = {}
-            out_keys = []
-            for k, v in out_ports.iteritems():
-                for name in v:
-                    out_keys.append('%s.%s' % (k, name))
-                nodes[k] = Node(IdentityInterface(fields=v), name=k)
-
-            for key, dest in self._map:
-                if dest not in out_keys:
-                    raise RuntimeError('Unknown output found when mapping')
-
-                dest = dest.split('.')
-                self.connect(self._condition, key, nodes[dest[0]], dest[1])
-
-        # else, normally run
-        return super(ConditionalWorkflow, self).run(plugin, plugin_args,
-                                                    updatehash)
+        super(ConditionalWorkflow, self)._check_graph()
 
     def _get_conditions(self):
         """Returns the conditions of this workflow
