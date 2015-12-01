@@ -43,8 +43,7 @@ def test_cw_removal_cond_unset():
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
-    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
-                       out_file=tmpfile), name='sink')
+    jsonsink = pe.Node(nio.JSONFileSink(out_file=tmpfile), name='sink')
     cwf.connect([(outputnode, jsonsink, [('out', 'sum')])])
     res = cwf.run()
 
@@ -85,8 +84,7 @@ def test_cw_removal_cond_set():
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
-    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
-                       out_file=tmpfile), name='sink')
+    jsonsink = pe.Node(nio.JSONFileSink(out_file=tmpfile), name='sink')
     cwf.connect([(outputnode, jsonsink, [('out', 'sum')])])
     res = cwf.run()
 
@@ -132,8 +130,7 @@ def test_cw_removal_cond_connected_not_set():
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
-    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
-                       out_file=tmpfile), name='sink')
+    jsonsink = pe.Node(nio.JSONFileSink(out_file=tmpfile), name='sink')
     wf.connect([(cwf, jsonsink, [('outputnode.out', 'sum')])])
     res = wf.run()
 
@@ -183,8 +180,7 @@ def test_cw_removal_cond_connected_and_set():
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
-    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
-                       out_file=tmpfile), name='sink')
+    jsonsink = pe.Node(nio.JSONFileSink(out_file=tmpfile), name='sink')
     wf.connect([(cwf, jsonsink, [('outputnode.out', 'sum')])])
     res = wf.run()
 
