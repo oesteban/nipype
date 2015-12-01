@@ -1291,9 +1291,9 @@ class ConditionalWorkflow(Workflow):
         if (isinstance(srcport, tuple) and
                 not isinstance(srcport[1], string_types)):
             function_source = getsource(src[1])
-            data = [((srcport[0], function_source, srcport[2:]), dstport)]
+            data = ((srcport[0], function_source, srcport[2:]), dstport)
         else:
-            data = [(srcport, dstport)]
+            data = (srcport, dstport)
 
         # add connections
         edge_data = self._graph.get_edge_data(srcnode, dstnode, None)
@@ -1303,7 +1303,7 @@ class ConditionalWorkflow(Workflow):
                          % (srcnode, dstnode, str(edge_data)))
 
             if data not in edge_data['connect']:
-                edge_data['connect'].append(connection)
+                edge_data['connect'].append(data)
 
             if edge_data['connect']:
                 self._graph.add_edges_from([(srcnode, dstnode, edge_data)])
@@ -1315,7 +1315,7 @@ class ConditionalWorkflow(Workflow):
         else:
             logger.debug('(%s, %s): No edge data' % (srcnode, dstnode))
             self._graph.add_edges_from([(srcnode, dstnode,
-                                        {'connect': data})])
+                                        {'connect': [data]})])
 
         edge_data = self._graph.get_edge_data(srcnode, dstnode)
         logger.debug('(%s, %s): new edge data: %s' % (srcnode, dstnode,
