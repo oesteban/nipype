@@ -129,9 +129,19 @@ def test_cw_removal_cond_connected_not_set():
 
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 1
-    res = wf.run()
-    print outputnode.inputs.out
 
+    # check result
+    tmpfile = op.join(mkdtemp(), 'result.json')
+    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
+                       out_file=tmpfile), name='sink')
+    wf.connect([(cwf, jsonsink, [('outputnode.out', 'sum')])])
+    res = wf.run()
+
+    with open(tmpfile, 'r') as f:
+        result = json.dumps(json.load(f))
+
+    rmtree(op.dirname(tmpfile))
+    yield assert_equal, result, '{"sum": 0}'
 
 
 def test_cw_removal_cond_connected_and_set():
@@ -171,5 +181,15 @@ def test_cw_removal_cond_connected_and_set():
     # when the condition is set, all nodes are removed
     yield assert_equal, len(eg.nodes()), 0
 
+    # check result
+    tmpfile = op.join(mkdtemp(), 'result.json')
+    jsonsink = pe.Node(nio.JSONFileSink(input_names=['sum'],
+                       out_file=tmpfile), name='sink')
+    wf.connect([(cwf, jsonsink, [('outputnode.out', 'sum')])])
     res = wf.run()
-    print outputnode.inputs.out
+
+    with open(tmpfile, 'r') as f:
+        result = json.dumps(json.load(f))
+
+    rmtree(op.dirname(tmpfile))
+    yield assert_equal, result, '{"sum": 7}'
