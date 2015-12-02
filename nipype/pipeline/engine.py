@@ -1132,27 +1132,9 @@ connected.
                     else:
                         vname1 += '.' + '.'.join(dest.split('.')[:-1])
                 if uname1.split('.')[:-1] != vname1.split('.')[:-1]:
-                    srcnode = [n for n in allnodes if str(n) == uname1]
-                    dstnode = [n for n in allnodes if str(n) == vname1]
-
-                    if len(srcnode) == 1:
-                        srcnode = srcnode[0]
-                    else:
-                        srcnode = [n for n in allnodes if str(n) == '.'.join(
-                            uname1.split('.')[:-1])][0]
-                        subnodes = srcnode._graph.nodes()
-                        srcnode = [n for n in subnodes if str(n) == '.'.join(
-                            uname1.split('.')[1:])][0]
-
-                    if len(dstnode) == 1:
-                        dstnode = dstnode[0]
-                    else:
-                        dstnode = [n for n in allnodes if str(n) == '.'.join(
-                            vname1.split('.')[:-1])][0]
-                        subnodes = dstnode._graph.nodes()
-                        dstnode = [n for n in subnodes if str(n) == '.'.join(
-                            vname1.split('.')[1:])][0]
-
+                    srcnode = self._get_dot_find_node(uname1)
+                    dstnode = self._get_dot_find_node(vname1)
+                        
                     dotlist.append('%s -> %s' % (uname1.replace('.', '_'),
                                                  vname1.replace('.', '_')))
                     if (hasattr(srcnode, 'condition_map') or
@@ -1161,8 +1143,30 @@ connected.
                     dotlist[-1] += ';'
 
                     logger.debug('cross connection: ' + dotlist[-1] +
-                                 'with nodes %s -> %s.' % (srcnode, dstnode))
+                                 ' with nodes %s -> %s.' % (srcnode, dstnode))
         return ('\n' + prefix).join(dotlist)
+
+    def _get_dot_find_node(self, name):
+        allnodes = self._graph.nodes()
+        hierarchy = name.split('.')
+
+        index = 0
+        for w in hierarchy:
+            if w == self.name:
+                break
+            index += 1
+
+        hierarchy = hierarchy[index:]
+        if len(hierarchy) <= 2:
+            matches = [n for n in allnodes if str(n) == '.'.join(hierarchy)]
+            if len(matches) == 1:
+                return matches[0]
+            else:
+                return None
+
+        subworkflow = [n for n in allnodes if str(n) == '.'.join(
+            hierarchy[:2])][0]
+        return subworkflow._get_dot_find_node('.'.join(hierarchy[1:]))
 
 
 class ConditionalWorkflow(Workflow):
