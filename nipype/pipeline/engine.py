@@ -1183,6 +1183,11 @@ class ConditionalWorkflow(Workflow):
             unique identifier for the workflow
         base_dir : string, optional
             path to workflow storage
+        condition_map : list of tuples, non-empty
+            each tuple indicates the input port name and the node and output
+            port name, for instance ('b', 'outputnode.sum') will map the
+            workflow input 'conditions.b' to 'outputnode.sum'.
+            'b' 
 
         """
 
@@ -1200,6 +1205,7 @@ class ConditionalWorkflow(Workflow):
         self._condition = ConditionalNode(IdentityInterface(
             fields=cond_in), condition_map=condition_map, name='conditions')
         self.add_nodes([self._condition])
+        self._input_conditions = cond_in
         self._map = condition_map
 
     # Input-Output access
@@ -1213,11 +1219,6 @@ class ConditionalWorkflow(Workflow):
     @property
     def conditions(self):
         return self._get_conditions()
-
-    def _set_condition(self, object, name, newvalue):
-        """Trait callback function to update a node input
-        """
-        object.traits()[name].node.set_input(name, newvalue)
 
     def _check_graph(self):
         self._map_conditional_edges()
@@ -1235,17 +1236,15 @@ class ConditionalWorkflow(Workflow):
 
     def _set_condition(self, object, name, newvalue):
         logger.debug('Condition set: %s=%s' % (name, newvalue))
+        if name not in self._input_conditions:
+            raise RuntimeError('Trying to set a condition not defined'
+                               ' in the condition_map')
         object.traits()[name].node.set_input(name, newvalue)
 
     def _add_conditional_edge(self, srcnode, srcport, dstnode, dstport):
         """
         Add a conditional edge between nodes in the pipeline.
         Uses the NetworkX method DiGraph.add_edges_from.
-
-        Parameters
-        ----------
-
-
         """
 
         if self in [srcnode, dstnode]:
