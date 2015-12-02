@@ -1339,7 +1339,7 @@ class ConditionalWorkflow(Workflow):
                              (srcnode, dstnode, srcport, dstport))
                 self._add_conditional_edge(srcnode, srcport, dstnode, dstport)
             else:
-                raise Exception('Destination node %n not found adding '
+                raise Exception('Destination node %s not found adding '
                                 'a conditional edge.' % conn[1])
 
 
