@@ -559,7 +559,6 @@ def _remove_identity_node(graph, node):
     """Remove identity nodes from an execution graph
     """
     portinputs, portoutputs = _node_ports(graph, node)
-    logger.debug('Portinputs=%s\n\t Portoutputs=%s' % (portinputs, portoutputs))
     for field, connections in list(portoutputs.items()):
         if portinputs:
             _propagate_internal_output(graph, node, field, connections,
@@ -598,7 +597,7 @@ def _node_ports(graph, node):
 
     if hasattr(node, 'condition_map'):
         nodes = graph.nodes()
-
+        logger.debug('Node %s has a condition map' % node)
         for src, dest in node.condition_map:
             wfname = str(node).split('.')[:-1]
             dstnodename = '.'.join(wfname + dest.split('.')[:-1])
@@ -607,6 +606,9 @@ def _node_ports(graph, node):
                 dstnode = matchnodes[0]
                 portoutputs[src] = portoutputs.get(src, [])
                 portoutputs[src].append((dstnode, dest.split('.')[-1], src))
+
+    logger.debug('Portinputs=%s\n\t Portoutputs=%s' %
+                 (portinputs, portoutputs))
     return (portinputs, portoutputs)
 
 
