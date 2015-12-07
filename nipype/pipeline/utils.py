@@ -586,7 +586,7 @@ def _identity_nodes(graph, include_iterables):
         nodenames.append('%s' % node)
         if not isinstance(node._interface, IdentityInterface):
             continue
-        if not include_iterables and getattr(node, 'iterables') is None:
+        if getattr(node, 'iterables') is not None and not include_iterables:
             continue
 
         # If workflow has conditions, put node in front of that workflow

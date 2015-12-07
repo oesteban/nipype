@@ -1134,7 +1134,7 @@ connected.
                 if uname1.split('.')[:-1] != vname1.split('.')[:-1]:
                     srcnode = self._get_dot_find_node(uname1)
                     dstnode = self._get_dot_find_node(vname1)
-                        
+
                     dotlist.append('%s -> %s' % (uname1.replace('.', '_'),
                                                  vname1.replace('.', '_')))
                     if (hasattr(srcnode, 'condition_map') or
@@ -1187,7 +1187,7 @@ class ConditionalWorkflow(Workflow):
             each tuple indicates the input port name and the node and output
             port name, for instance ('b', 'outputnode.sum') will map the
             workflow input 'conditions.b' to 'outputnode.sum'.
-            'b' 
+            'b'
 
         """
 
