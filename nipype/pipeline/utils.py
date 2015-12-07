@@ -506,7 +506,7 @@ def _shortcut_conditional_workflow(graph, node):
         info.append((srcport, dstport.split('.')[-1]))
         connects[(node, dstnode)] = info
 
-    for k, info in connects.iteritems():
+    for k, info in connects.items():
         _connect_nodes(graph, k[0], k[1], info)
 
     return graph
