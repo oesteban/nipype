@@ -486,30 +486,55 @@ def _connect_nodes(graph, srcnode, destnode, connection_info):
 
 
 def _shortcut_conditional_workflow(graph, node):
+    connects = {}
     for srcport, dstport in node.condition_map:
         dstnodename = '%s.%s' % ('.'.join(str(node).split('.')[:-1]),
                                  dstport.split('.')[0])
         dstnode = [n for n in graph.nodes() if dstnodename == '%s' % n][0]
-
-        rem_edges = []
-        rem_nodes = []
-        for u, _, d in graph.in_edges_iter(dstnode, data=True):
-            for src, dest in d['connect']:
-                rem_edges.append((u, dstnode))
-            rem_nodes.append(u)
+        # wfname = '.'.join(('%s' % node).split('.')[:-1])
+        wfname = ('%s' % node).rpartition('.')[0]
+        rem_nodes, rem_edges = _remove_subtree(graph, dstnode, node, wfname)
 
         for u, v in rem_edges:
             graph.remove_edge(u, v)
             logger.debug('Removed edge %s -> %s' % (u, v))
-
         for u in rem_nodes:
             graph.remove_node(u)
             logger.debug('Removed node %s' % u)
 
-        info = (srcport, dstport.split('.')[-1])
-        _connect_nodes(graph, node, dstnode, [info])
+        info = connects.get((node, dstnode), [])
+        info.append((srcport, dstport.split('.')[-1]))
+        connects[(node, dstnode)] = info
+
+    for k, info in connects.iteritems():
+        _connect_nodes(graph, k[0], k[1], info)
 
     return graph
+
+
+def _remove_subtree(graph, topnode, keepnode=None, wfname=None,
+                    rem_nodes=None, rem_edges=None):
+    """
+    Find all input edges to topnode, mark to remove
+    nodes and edges not belonging to node.
+    """
+    if rem_nodes is None:
+        rem_nodes = []
+    if rem_edges is None:
+        rem_edges = []
+    if wfname is None:
+        wfname = ('%s' % topnode).split('.')[:-1]
+    if keepnode is None:
+        keepnode = topnode
+
+    for u, _ in graph.in_edges_iter(nbunch=topnode):
+        if ('%s' % u).startswith(wfname) and u != keepnode:
+            rem_edges.append((u, topnode))
+            rem_nodes.append(u)
+
+            rem_nodes, rem_edges = _remove_subtree(
+                graph, u, keepnode, wfname, rem_nodes, rem_edges)
+    return rem_nodes, rem_edges
 
 
 def _remove_conditional_nodes(graph):
@@ -539,7 +564,12 @@ def _remove_nonjoin_identity_nodes(graph, keep_iterables=False):
     # and join nodes in the nodes to delete
     for node in _identity_nodes(graph, not keep_iterables):
         if not hasattr(node, 'joinsource'):
-            _remove_identity_node(graph, node)
+            try:
+                _remove_identity_node(graph, node)
+            except nx.exception.NetworkXError:
+                logger.warn('Node %s has been removed. This could'
+                            ' be a consequence of a Conditional'
+                            'Workflow decision or an error.' % node)
     return graph
 
 
@@ -550,9 +580,31 @@ def _identity_nodes(graph, include_iterables):
     are included if and only if the include_iterables flag is set
     to True.
     """
-    return [node for node in nx.topological_sort(graph)
-            if isinstance(node._interface, IdentityInterface) and
-            (include_iterables or getattr(node, 'iterables') is None)]
+    nodelist = []
+    nodenames = []
+    for node in nx.topological_sort(graph):
+        nodenames.append('%s' % node)
+        if not isinstance(node._interface, IdentityInterface):
+            continue
+        if not include_iterables and getattr(node, 'iterables') is None:
+            continue
+
+        # If workflow has conditions, put node in front of that workflow
+        if hasattr(node, 'condition_map'):
+            wfname = ('%s' % node).rpartition('.')[0]
+            pos = -1
+            for i, name in enumerate(nodenames):
+                if wfname in name:
+                    pos = i
+                    break
+
+            if pos >= 0:
+                logger.debug('Conditional node advanced to position %d' % pos)
+                nodelist.insert(pos, node)
+                continue
+
+        nodelist.append(node)
+    return nodelist
 
 
 def _remove_identity_node(graph, node):

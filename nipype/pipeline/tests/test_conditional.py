@@ -39,7 +39,8 @@ def test_cw_removal_cond_unset():
     cwf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is not set, the sumnode should remain
-    yield assert_equal, len(eg.nodes()), 1
+    yield (assert_equal, ['%s' % n for n in eg.nodes()],
+           ['TestConditionalWorkflow.SumNode'])
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
@@ -80,7 +81,7 @@ def test_cw_removal_cond_set():
     cwf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
     # when the condition is set, all nodes are removed
-    yield assert_equal, len(eg.nodes()), 0
+    yield assert_equal, ['%s' % n for n in eg.nodes()], []
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
@@ -125,8 +126,9 @@ def test_cw_removal_cond_connected_not_set():
     wf._set_needed_outputs(fg)
     eg = pe.generate_expanded_graph(deepcopy(fg))
 
-    # when the condition is set, all nodes are removed
-    yield assert_equal, len(eg.nodes()), 1
+    # when the condition is not set, one node remains
+    yield (assert_equal, ['%s' % n for n in eg.nodes()],
+           ['OuterWorkflow.TestConditionalWorkflow.SumNode'])
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
@@ -176,7 +178,7 @@ def test_cw_removal_cond_connected_and_set():
     eg = pe.generate_expanded_graph(deepcopy(fg))
 
     # when the condition is set, all nodes are removed
-    yield assert_equal, len(eg.nodes()), 0
+    yield (assert_equal, ['%s' % n for n in eg.nodes()], [])
 
     # check result
     tmpfile = op.join(mkdtemp(), 'result.json')
