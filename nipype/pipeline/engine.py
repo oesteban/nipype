@@ -1123,15 +1123,15 @@ connected.
                 else:
                     srcname = src
                 if '.' in srcname:
-                    uname1 += '.' + '.'.join(srcname.split('.')[:-1])
+                    uname1 += '.' + srcname.rpartition('.')[0]
                 if '.' in dest and '@' not in dest:
                     if not isinstance(v, Workflow):
                         if 'datasink' not in \
                            str(v._interface.__class__).lower():
-                            vname1 += '.' + '.'.join(dest.split('.')[:-1])
+                            vname1 += '.' + dest.rpartition('.')[0]
                     else:
-                        vname1 += '.' + '.'.join(dest.split('.')[:-1])
-                if uname1.split('.')[:-1] != vname1.split('.')[:-1]:
+                        vname1 += '.' + dest.rpartition('.')[0]
+                if uname1.rpartition('.')[0] != vname1.rpartition('.')[0]:
                     srcnode = self._get_dot_find_node(uname1)
                     dstnode = self._get_dot_find_node(vname1)
 
