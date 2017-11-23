@@ -603,7 +603,7 @@ class BaseInterface(Interface):
         A convenient way to save current inputs to a JSON file.
         """
         inputs = self.inputs.get_traitsfree()
-        iflogger.debug('saving inputs {}', inputs)
+        iflogger.debug('saving inputs %s', inputs)
         with open(json_file, 'w' if PY3 else 'wb') as fhandle:
             json.dump(inputs, fhandle, indent=4, ensure_ascii=False)
 
@@ -712,20 +712,19 @@ def run_command(runtime, output=None, timeout=0.01):
     }
 
     if output == 'stream':
-        streams = [Stream('stdout', proc.stdout), Stream('stderr', proc.stderr)]
+        stream = Stream('output', proc.stdout)
 
         def _process(drain=0):
             try:
-                res = select.select(streams, [], [], timeout)
+                res = select.select([stream], [], [], timeout)
             except select.error as e:
-                iflogger.info(e)
+                iflogger.info('Error handling terminal output:\n%s' % e)
                 if e[0] == errno.EINTR:
                     return
                 else:
                     raise
             else:
-                for stream in res[0]:
-                    stream.read(drain)
+                stream.read(drain)
 
         while proc.returncode is None:
             proc.poll()
@@ -910,6 +909,7 @@ class CommandLine(BaseInterface):
             o, e = proc.communicate()
             return o
 
+
     def _run_interface(self, runtime, correct_return_codes=(0,)):
         """Execute command via subprocess
 
@@ -923,11 +923,42 @@ class CommandLine(BaseInterface):
             adds stdout, stderr, merged, cmdline, dependencies, command_path
 
         """
+        runtime = self.start(runtime)
+        #runtime.proc.wait()
+        runtime = self.finish(runtime)
 
+        if runtime.returncode is None or \
+                runtime.returncode not in correct_return_codes:
+            self.raise_exception(runtime)
+
+        return runtime
+
+
+    def start(self, runtime=None):
+        """
+        Initialize the new process and detach
+
+        """
         out_environ = self._get_environ()
-        # Initialize runtime Bunch
+        output = self.terminal_output
+
+        if runtime is None:
+            runtime = Bunch(
+                cwd=os.getcwd(),
+                returncode=None,
+                duration=None,
+                environ=out_environ,
+                startTime=dt.isoformat(dt.utcnow()),
+                endTime=None,
+                platform=platform.platform(),
+                hostname=platform.node(),
+                version=self.version
+            )
+
+        # Add runtime fields specific to the CommandLine interface
         runtime.stdout = None
         runtime.stderr = None
+        runtime.terminal_output = output
         runtime.cmdline = self.cmdline
         runtime.environ.update(out_environ)
 
@@ -943,11 +974,108 @@ class CommandLine(BaseInterface):
 
         runtime.command_path = cmd_path
         runtime.dependencies = get_dependencies(executable_name, runtime.environ)
-        runtime = run_command(runtime, output=self.terminal_output)
-        if runtime.returncode is None or \
-                runtime.returncode not in correct_return_codes:
-            self.raise_exception(runtime)
 
+        # Init variables
+        env = _canonicalize_env(runtime.environ)
+
+        # Discard by default
+        stdout = sp.DEVNULL
+        stderr = sp.DEVNULL
+
+        if output == 'file':
+            stdout = open(os.path.join(runtime.cwd, 'output.nipype'), 'wb')  # t=='text'===default
+        elif output == 'file_split':
+            stdout = open(os.path.join(runtime.cwd, 'stdout.nipype'), 'wb')
+            stderr = open(os.path.join(runtime.cwd, 'stderr.nipype'), 'wb')
+        elif output == 'file_stdout':
+            stdout = open(os.path.join(runtime.cwd, 'stdout.nipype'), 'wb')
+        elif output == 'file_stderr':
+            stderr = open(os.path.join(runtime.cwd, 'stderr.nipype'), 'wb')
+
+        # Outputs that pipe standard output
+        if output in ['stream', 'allatonce']:
+            stdout = sp.PIPE
+
+        # Outputs that redirect stderr > stdout
+        if output in ['file', 'stream', 'allatonce']:
+            stderr = sp.STDOUT
+
+        runtime.proc = sp.Popen(
+            self.cmdline, stdout=stdout, stderr=stderr, shell=True,
+            cwd=runtime.cwd, env=env, close_fds=True,
+        )
+
+        if output == 'stream':
+            stream = Stream('output', runtime.proc.stdout)
+            timeout = config.get('execution', 'stream_timeout', 0.01)
+
+            def _process(drain=0):
+                try:
+                    res = select.select([stream], [], [], timeout)
+                except select.error as e:
+                    iflogger.info('Error handling terminal output:\n%s' % e)
+                    if e[0] == errno.EINTR:
+                        return
+                    else:
+                        raise
+                else:
+                    stream.read(drain)
+
+            while runtime.proc.returncode is None:
+                runtime.proc.poll()
+                _process()
+
+            _process(drain=1)
+
+            # collect results
+            runtime.stderr = ''
+            runtime.stdout = ''
+            runtime.merged = '\n'.join([r[1] for r in stream._rows])
+            runtime.returncode = runtime.proc.returncode
+
+        return runtime
+
+
+    def finish(self, runtime):
+        output = self.terminal_output
+        runtime.proc.wait()
+
+        if output not in ['stream', 'none']:
+            stdout = runtime.proc.stdout
+            stderr = runtime.proc.stderr
+            result = {'stdout': [], 'stderr': [], 'merged': []}
+
+            if output == 'allatonce':
+                result['merged'] = read_stream(stdout.read(), logger=iflogger)
+
+            elif output.startswith('file'):
+                if output != 'file_stderr':
+                    stdout.flush()
+                    stdout.close()
+                    with open(stdout.name, 'rb') as ofh:
+                        stdoutstr = ofh.read()
+                    result['stdout'] = read_stream(stdoutstr, logger=iflogger)
+
+                if output not in ['file', 'file_stdout']:
+                    stderr.flush()
+                    stderr.close()
+                    with open(stderr.name, 'rb') as efh:
+                        stderrstr = efh.read()
+                    result['stderr'] = read_stream(stderrstr, logger=iflogger)
+
+                if output == 'file':
+                    result['merged'] = result['stdout']
+                    result['stdout'] = []
+
+
+            runtime.stderr = '\n'.join(result['stderr'])
+            runtime.stdout = '\n'.join(result['stdout'])
+            runtime.merged = '\n'.join(result['merged'])
+            runtime.returncode = runtime.proc.returncode
+
+
+        runtime.proc.terminate()
+        delattr(runtime, 'proc')
         return runtime
 
     def _format_arg(self, name, trait_spec, value):
