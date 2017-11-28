@@ -121,6 +121,7 @@ class Bunch(object):
 
     Examples
     --------
+
     >>> from nipype.interfaces.base import Bunch
     >>> inputs = Bunch(infile='subj.nii', fwhm=6.0, register_to_mean=True)
     >>> inputs
@@ -128,6 +129,34 @@ class Bunch(object):
     >>> inputs.register_to_mean = False
     >>> inputs
     Bunch(fwhm=6.0, infile='subj.nii', register_to_mean=False)
+
+    >>> hash(inputs)
+    1215998937426034194
+
+    >>> inputs.register_to_mean=True
+    >>> hash(inputs) == old_hash
+    74952942039249246
+
+    >>> # Two different Bunch objects are comparable:
+    >>> inputs = Bunch(fwhm=6.0, infile='subj.nii', register_to_mean=True)
+    >>> inputs == Bunch(fwhm=6.0, infile='subj.nii', register_to_mean=True)
+    True
+
+    >>> inputs == Bunch(fwhm=6.0, infile='subj.nii', register_to_mean=False)
+    False
+
+    >>> # The Bunch hash changes if filenames point to existing files:
+    >>> old_hash = hash(inputs)  # Get hash before the file exists
+    >>> with open('subj.nii', 'w') as fh:
+    ...    fh.write('12345\n')
+    >>> hash(inputs) != old_hash  # The hash changes when the file exists ...
+    True
+
+    >>> old_hash = hash(inputs)  # Update hash value
+    >>> with open('subj.nii', 'w') as fh:
+    ...    fh.write('abcde\n')
+    >>> hash(inputs) != old_hash  # ... or changes
+    True
 
 
     Notes
@@ -196,25 +225,22 @@ class Bunch(object):
         outstr.append(')')
         return ''.join(outstr)
 
+
+    def __hash__(self):
+        """The hash of Bunch should depend on the nipype hash"""
+        return int(self._get_bunch_hash()[1], 16)
+
+    def __eq__(self, other):
+        """Compare two Bunch objects based off their hash"""
+        return self._get_bunch_hash()[1] == other._get_bunch_hash()[1]
+
     def _hash_infile(self, adict, key):
         # Inject file hashes into adict[key]
         stuff = adict[key]
         if not is_container(stuff):
             stuff = [stuff]
-        file_list = []
-        for afile in stuff:
-            if os.path.isfile(afile):
-                md5obj = md5()
-                with open(afile, 'rb') as fp:
-                    while True:
-                        data = fp.read(8192)
-                        if not data:
-                            break
-                        md5obj.update(data)
-                md5hex = md5obj.hexdigest()
-            else:
-                md5hex = None
-            file_list.append((afile, md5hex))
+        file_list = [hash_infile(afile, crypto=md5)
+                     for afile in stuff]
         return file_list
 
     def _get_bunch_hash(self):
@@ -314,6 +340,8 @@ class InterfaceResult(object):
         * returncode : The code returned from running the ``cmdline``.
 
     """
+    __slots__ = ['_version', 'interface', 'runtime', 'inputs', 'outputs', 'provenance']
+
 
     def __init__(self, interface, runtime, inputs=None, outputs=None,
                  provenance=None):
