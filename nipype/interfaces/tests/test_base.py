@@ -45,21 +45,26 @@ def test_bunch_methods():
     assert b.a == 3
     assert b.get('a') == 3
     assert b.get('badkey', 'otherthing') == 'otherthing'
+    with pytest.raises(AttributeError):
+        badkey = b.badkey
     assert b != newb
     assert type(dict()) == type(newb)
     assert newb['a'] == 3
 
 
-def test_bunch_hash():
-    # NOTE: Since the path to the json file is included in the Bunch,
-    # the hash will be unique to each machine.
-    pth = os.path.split(os.path.abspath(__file__))[0]
-    json_pth = os.path.join(pth, 'realign_json.json')
+def test_bunch_hash(tmpdir):
+    tmpdir.chdir()
+    json_fh = tmpdir.join('tempfile.txt')
+    json_pth = json_fh.strpath
+    json_fh.write('some contents for the file.\n')
+    json_fh.close()
+
+    # Create a Bunch
     b = nib.Bunch(infile=json_pth,
                   otherthing='blue',
                   yat=True)
     newbdict, bhash = b._get_bunch_hash()
-    assert bhash == 'ddcc7b4ec5675df8cf317a48bd1857fa'
+    assert bhash == '07b51837a51dad00a7cb2c99c909150c'
     # Make sure the hash stored in the json file for `infile` is correct.
     jshash = nib.md5()
     with open(json_pth, 'r') as fp:

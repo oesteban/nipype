@@ -232,16 +232,10 @@ class Bunch(object):
 
     def __eq__(self, other):
         """Compare two Bunch objects based off their hash"""
-        return self._get_bunch_hash()[1] == other._get_bunch_hash()[1]
+        # if isinstance(other, dict):
+        #     other = self.__class__(**other)
+        return self.__hash__() == hash(other)
 
-    def _hash_infile(self, adict, key):
-        # Inject file hashes into adict[key]
-        stuff = adict[key]
-        if not is_container(stuff):
-            stuff = [stuff]
-        file_list = [hash_infile(afile, crypto=md5)
-                     for afile in stuff]
-        return file_list
 
     def _get_bunch_hash(self):
         """Return a dictionary of our items with hashes for each file.
@@ -287,7 +281,7 @@ class Bunch(object):
         dict_withhash = self.dictcopy()
         dict_nofilename = self.dictcopy()
         for item in infile_list:
-            dict_withhash[item] = self._hash_infile(dict_withhash, item)
+            dict_withhash[item] = _hash_field(dict_withhash[item])
             dict_nofilename[item] = [val[1] for val in dict_withhash[item]]
         # Sort the items of the dictionary, before hashing the string
         # representation so we get a predictable order of the
@@ -313,6 +307,13 @@ class Bunch(object):
                 first = False
             p.end_group(6, ')')
 
+def _hash_field(value):
+    # Inject file hashes into adict
+    if not is_container(value):
+        value = [value]
+    file_list = [hash_infile(afile, crypto=md5)
+                 for afile in value]
+    return file_list
 
 class InterfaceResult(object):
     """Object that contains the results of running a particular Interface.
@@ -481,29 +482,6 @@ class BaseTraitedSpec(traits.HasTraits):
                                    **{'%s' % name: Undefined,
                                       '%s' % trait_spec.new_name: new})
 
-    def _hash_infile(self, adict, key):
-        """ Inject file hashes into adict[key]"""
-        stuff = adict[key]
-        if not is_container(stuff):
-            stuff = [stuff]
-        file_list = []
-        for afile in stuff:
-            if is_container(afile):
-                hashlist = self._hash_infile({'infiles': afile}, 'infiles')
-                hash = [val[1] for val in hashlist]
-            else:
-                if config.get('execution',
-                              'hash_method').lower() == 'timestamp':
-                    hash = hash_timestamp(afile)
-                elif config.get('execution',
-                                'hash_method').lower() == 'content':
-                    hash = hash_infile(afile)
-                else:
-                    raise Exception("Unknown hash method: %s" %
-                                    config.get('execution', 'hash_method'))
-            file_list.append((afile, hash))
-        return file_list
-
     def get(self, **kwargs):
         """ Returns traited class as a dict
 
@@ -645,6 +623,32 @@ class BaseTraitedSpec(traits.HasTraits):
                     out = objekt
         return out
 
+
+def _hash_spec(adict, key, method=None):
+    """Calculate the hash for a given key in adict"""
+    if method is None:
+        method = config.get('execution', 'hash_method').lower()
+
+    if method not in ['timestamp', 'content']:
+        raise RuntimeError('Unknown hash method: %s' % method)
+
+    stuff = adict[key]
+    if not is_container(stuff):
+        stuff = [stuff]
+    file_list = []
+    for afile in stuff:
+        if is_container(afile):
+            hashlist = _hash_spec({'infiles': afile}, 'infiles')
+            hashed = [val[1] for val in hashlist]
+        else:
+            if config.get('execution',
+                          'hash_method').lower() == 'timestamp':
+                hashed = hash_timestamp(afile)
+            elif config.get('execution',
+                            'hash_method').lower() == 'content':
+                hashed = hash_infile(afile)
+        file_list.append((afile, hashed))
+    return file_list
 
 class DynamicTraitedSpec(BaseTraitedSpec):
     """ A subclass to handle dynamic traits
