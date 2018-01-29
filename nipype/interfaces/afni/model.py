@@ -36,7 +36,7 @@ class DeconvolveInputSpec(AFNICommandInputSpec):
         argstr='-input %s',
         copyfile=False,
         sep=" ",
-        position=0)
+        position=1)
     sat = traits.Bool(
         desc='check the dataset time series for initial saturation transients,'
         ' which should normally have been excised before data analysis.',
@@ -57,10 +57,11 @@ class DeconvolveInputSpec(AFNICommandInputSpec):
         '* If the auto-catenation feature isn\'t used, then this option '
         'has no effect, no how, no way.',
         argstr='-noblock')
-    force_TR = traits.Int(
+    force_TR = traits.Float(
         desc='use this value instead of the TR in the \'input\' '
-        'dataset. (It\'s better to fix the input using Refit.)',
-        argstr='-force_TR %d')
+             'dataset. (It\'s better to fix the input using Refit.)',
+        argstr='-force_TR %f',
+        position=0)
     input1D = File(
         desc='filename of single (fMRI) .1D time series where time runs down '
         'the column.',
@@ -292,9 +293,16 @@ class Deconvolve(AFNICommand):
             outputs['x1D'] = self._gen_fname(
                 suffix='.xmat.1D', **_gen_fname_opts)
 
+        if isdefined(self.inputs.cbucket):
+            outputs['cbucket'] = os.path.abspath(self.inputs.cbucket)
+
         outputs['reml_script'] = self._gen_fname(
             suffix='.REML_cmd', **_gen_fname_opts)
-        outputs['out_file'] = os.path.abspath(self.inputs.out_file)
+        # remove out_file from outputs if x1d_stop set to True
+        if self.inputs.x1D_stop:
+            del outputs['out_file'], outputs['cbucket']
+        else:
+            outputs['out_file'] = os.path.abspath(self.inputs.out_file)
 
         return outputs
 
@@ -647,3 +655,12 @@ class Synthesize(AFNICommand):
     _cmd = '3dSynthesize'
     input_spec = SynthesizeInputSpec
     output_spec = AFNICommandOutputSpec
+
+    def _list_outputs(self):
+        outputs = self.output_spec().get()
+
+        for key in outputs.keys():
+            if isdefined(self.inputs.get()[key]):
+                outputs[key] = os.path.abspath(self.inputs.get()[key])
+
+        return outputs
