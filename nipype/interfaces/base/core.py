@@ -57,6 +57,7 @@ VALID_TERMINAL_OUTPUT = [
     'stream', 'allatonce', 'file', 'file_split', 'file_stdout', 'file_stderr',
     'none'
 ]
+NIPYPE_LINEWIDTH = 70
 __docformat__ = 'restructuredtext'
 
 
@@ -74,44 +75,175 @@ class Interface(object):
     # defines if the interface can reuse partial results after interruption
     _can_resume = False
 
+    # should the interface be always run even if the inputs were not changed?
+    _always_run = False
+
+    # hook for duecredit refs
+    references_ = []
+
     @property
     def can_resume(self):
         return self._can_resume
 
-    # should the interface be always run even if the inputs were not changed?
-    _always_run = False
-
     @property
     def always_run(self):
         return self._always_run
+
+    @property
+    def version(self):
+        raise NotImplementedError
 
     def __init__(self, **inputs):
         """Initialize command with given args and inputs."""
         raise NotImplementedError
 
     @classmethod
-    def help(cls):
-        """ Prints class help"""
-        raise NotImplementedError
+    def help(cls, returnhelp=False):
+        """Prints class help"""
+        docstring = []
+        if cls.__doc__:
+            docstring += trim(cls.__doc__).split('\n')
+
+        allhelp = '\n'.join(
+            docstring + [''] +
+            cls._inputs_help() + [''] +
+            cls._outputs_help() + [''] +
+            cls._refs_help() + ['']
+        )
+        if returnhelp:
+            return allhelp
+        print(allhelp)
+
+    @classmethod
+    def _refs_help(cls):
+        """Prints interface references."""
+        if not cls.references_:
+            return []
+
+        helpstr = ['References:', '-----------']
+        for r in cls.references_:
+            helpstr += ['{}'.format(r['entry'])]
+
+        return helpstr
+
+    @classmethod
+    def _get_trait_desc(cls, inputs, name, spec):
+        desc = spec.desc
+        xor = spec.xor
+        requires = spec.requires
+        argstr = spec.argstr
+
+        manhelpstr = ['\t%s' % name]
+
+        type_info = spec.full_info(inputs, name, None)
+
+        default = ''
+        if spec.usedefault:
+            default = ', nipype default value: %s' % str(
+                spec.default_value()[1])
+        line = "(%s%s)" % (type_info, default)
+
+        manhelpstr = wrap(
+            line,
+            NIPYPE_LINEWIDTH,
+            initial_indent=manhelpstr[0] + ': ',
+            subsequent_indent='\t\t ')
+
+        if desc:
+            for line in desc.split('\n'):
+                line = re.sub(r"\s+", " ", line)
+                manhelpstr += wrap(
+                    line, NIPYPE_LINEWIDTH, initial_indent='\t\t', subsequent_indent='\t\t')
+
+        if argstr:
+            pos = spec.position
+            if pos is not None:
+                manhelpstr += wrap(
+                    'flag: %s, position: %s' % (argstr, pos),
+                    NIPYPE_LINEWIDTH,
+                    initial_indent='\t\t',
+                    subsequent_indent='\t\t')
+            else:
+                manhelpstr += wrap(
+                    'flag: %s' % argstr,
+                    NIPYPE_LINEWIDTH,
+                    initial_indent='\t\t',
+                    subsequent_indent='\t\t')
+
+        if xor:
+            line = '%s' % ', '.join(xor)
+            manhelpstr += wrap(
+                line,
+                NIPYPE_LINEWIDTH,
+                initial_indent='\t\tmutually_exclusive: ',
+                subsequent_indent='\t\t ')
+
+        if requires:
+            others = [field for field in requires if field != name]
+            line = '%s' % ', '.join(others)
+            manhelpstr += wrap(
+                line,
+                NIPYPE_LINEWIDTH,
+                initial_indent='\t\trequires: ',
+                subsequent_indent='\t\t ')
+        return manhelpstr
 
     @classmethod
     def _inputs_help(cls):
-        """ Prints inputs help"""
-        raise NotImplementedError
+        """Prints description for input parameters"""
+        helpstr = ['Inputs::', '']
+        mandatory_keys = []
+        optional_items = []
+
+        if cls.input_spec:
+            inputs = cls.input_spec()
+            mandatory_items = list(inputs.traits(mandatory=True).items())
+            if mandatory_items:
+                helpstr += ['\t[Mandatory]']
+                for name, spec in sorted(mandatory_items):
+                    helpstr += cls._get_trait_desc(inputs, name, spec)
+
+            mandatory_keys = [item[0] for item in mandatory_items]
+            optional_items = [cls._get_trait_desc(inputs, name, val)
+                              for name, val in inputs.traits(transient=None).items()
+                              if name not in mandatory_keys]
+            if optional_items:
+                helpstr += ['\t[Optional]'] + optional_items
+
+        if not mandatory_keys and not optional_items:
+            helpstr += ['\tNone']
+        return helpstr
 
     @classmethod
     def _outputs_help(cls):
-        """ Prints outputs help"""
-        raise NotImplementedError
+        """Prints description for output parameters"""
+        helpstr = ['Outputs::', '', '\tNone']
+        if cls.output_spec:
+            outputs = cls.output_spec()
+            outhelpstr = [
+                cls._get_trait_desc(outputs, name, spec)
+                for name, spec in sorted(outputs.traits(transient=None).items())]
+            if outhelpstr:
+                helpstr = helpstr[:-1] + outhelpstr
+        return helpstr
+
+    def _outputs(self):
+        """Returns a bunch containing output fields for the class"""
+        if self.output_spec:
+            return self.output_spec()
 
     @classmethod
-    def _outputs(cls):
-        """ Initializes outputs"""
-        raise NotImplementedError
-
-    @property
-    def version(self):
-        raise NotImplementedError
+    def _get_filecopy_info(cls):
+        """Provides information about file inputs to copy or link to cwd.
+        Necessary for pipeline operation
+        """
+        info = []
+        if cls.input_spec is None:
+            return info
+        metadata = dict(copyfile=lambda t: t is not None)
+        for name, spec in sorted(cls.input_spec().traits(**metadata).items()):
+            info.append(dict(key=name, copy=spec.copyfile))
+        return info
 
     def run(self):
         """Execute the command."""
@@ -167,7 +299,6 @@ class BaseInterface(Interface):
     _version = None
     _additional_metadata = []
     _redirect_x = False
-    references_ = []
     resource_monitor = True  # Enabled for this interface IFF enabled in the config
 
     def __init__(self, from_file=None, resource_monitor=None,
@@ -177,7 +308,7 @@ class BaseInterface(Interface):
                 'No input_spec in class: %s' % self.__class__.__name__)
 
         self.inputs = self.input_spec(**inputs)
-        self.ignore_exception = ignore_exception
+        self.ignore_exception = ignore_exception is True
 
         if resource_monitor is not None:
             self.resource_monitor = resource_monitor
@@ -188,167 +319,9 @@ class BaseInterface(Interface):
             for name, value in list(inputs.items()):
                 setattr(self.inputs, name, value)
 
-    @classmethod
-    def help(cls, returnhelp=False):
-        """ Prints class help
-        """
-
-        if cls.__doc__:
-            # docstring = cls.__doc__.split('\n')
-            # docstring = [trim(line, '') for line in docstring]
-            docstring = trim(cls.__doc__).split('\n') + ['']
-        else:
-            docstring = ['']
-
-        allhelp = '\n'.join(docstring + cls._inputs_help(
-        ) + [''] + cls._outputs_help() + [''] + cls._refs_help() + [''])
-        if returnhelp:
-            return allhelp
-        else:
-            print(allhelp)
-
-    @classmethod
-    def _refs_help(cls):
-        """ Prints interface references.
-        """
-        if not cls.references_:
-            return []
-
-        helpstr = ['References::']
-
-        for r in cls.references_:
-            helpstr += ['{}'.format(r['entry'])]
-
-        return helpstr
-
-    @classmethod
-    def _get_trait_desc(self, inputs, name, spec):
-        desc = spec.desc
-        xor = spec.xor
-        requires = spec.requires
-        argstr = spec.argstr
-
-        manhelpstr = ['\t%s' % name]
-
-        type_info = spec.full_info(inputs, name, None)
-
-        default = ''
-        if spec.usedefault:
-            default = ', nipype default value: %s' % str(
-                spec.default_value()[1])
-        line = "(%s%s)" % (type_info, default)
-
-        manhelpstr = wrap(
-            line,
-            70,
-            initial_indent=manhelpstr[0] + ': ',
-            subsequent_indent='\t\t ')
-
-        if desc:
-            for line in desc.split('\n'):
-                line = re.sub("\s+", " ", line)
-                manhelpstr += wrap(
-                    line, 70, initial_indent='\t\t', subsequent_indent='\t\t')
-
-        if argstr:
-            pos = spec.position
-            if pos is not None:
-                manhelpstr += wrap(
-                    'flag: %s, position: %s' % (argstr, pos),
-                    70,
-                    initial_indent='\t\t',
-                    subsequent_indent='\t\t')
-            else:
-                manhelpstr += wrap(
-                    'flag: %s' % argstr,
-                    70,
-                    initial_indent='\t\t',
-                    subsequent_indent='\t\t')
-
-        if xor:
-            line = '%s' % ', '.join(xor)
-            manhelpstr += wrap(
-                line,
-                70,
-                initial_indent='\t\tmutually_exclusive: ',
-                subsequent_indent='\t\t ')
-
-        if requires:
-            others = [field for field in requires if field != name]
-            line = '%s' % ', '.join(others)
-            manhelpstr += wrap(
-                line,
-                70,
-                initial_indent='\t\trequires: ',
-                subsequent_indent='\t\t ')
-        return manhelpstr
-
-    @classmethod
-    def _inputs_help(cls):
-        """ Prints description for input parameters
-        """
-        helpstr = ['Inputs::']
-
-        inputs = cls.input_spec()
-        if len(list(inputs.traits(transient=None).items())) == 0:
-            helpstr += ['', '\tNone']
-            return helpstr
-
-        manhelpstr = ['', '\t[Mandatory]']
-        mandatory_items = inputs.traits(mandatory=True)
-        for name, spec in sorted(mandatory_items.items()):
-            manhelpstr += cls._get_trait_desc(inputs, name, spec)
-
-        opthelpstr = ['', '\t[Optional]']
-        for name, spec in sorted(inputs.traits(transient=None).items()):
-            if name in mandatory_items:
-                continue
-            opthelpstr += cls._get_trait_desc(inputs, name, spec)
-
-        if manhelpstr:
-            helpstr += manhelpstr
-        if opthelpstr:
-            helpstr += opthelpstr
-        return helpstr
-
-    @classmethod
-    def _outputs_help(cls):
-        """ Prints description for output parameters
-        """
-        helpstr = ['Outputs::', '']
-        if cls.output_spec:
-            outputs = cls.output_spec()
-            for name, spec in sorted(outputs.traits(transient=None).items()):
-                helpstr += cls._get_trait_desc(outputs, name, spec)
-        if len(helpstr) == 2:
-            helpstr += ['\tNone']
-        return helpstr
-
-    def _outputs(self):
-        """ Returns a bunch containing output fields for the class
-        """
-        outputs = None
-        if self.output_spec:
-            outputs = self.output_spec()
-
-        return outputs
-
-    @classmethod
-    def _get_filecopy_info(cls):
-        """ Provides information about file inputs to copy or link to cwd.
-            Necessary for pipeline operation
-        """
-        info = []
-        if cls.input_spec is None:
-            return info
-        metadata = dict(copyfile=lambda t: t is not None)
-        for name, spec in sorted(cls.input_spec().traits(**metadata).items()):
-            info.append(dict(key=name, copy=spec.copyfile))
-        return info
 
     def _check_requires(self, spec, name, value):
-        """ check if required inputs are satisfied
-        """
+        """Check if required inputs are satisfied"""
         if spec.requires:
             values = [
                 not isdefined(getattr(self.inputs, field))
@@ -362,8 +335,7 @@ class BaseInterface(Interface):
                 raise ValueError(msg)
 
     def _check_xor(self, spec, name, value):
-        """ check if mutually exclusive inputs are satisfied
-        """
+        """Check if mutually exclusive inputs are satisfied"""
         if spec.xor:
             values = [
                 isdefined(getattr(self.inputs, field)) for field in spec.xor
@@ -464,22 +436,18 @@ class BaseInterface(Interface):
         """
         from ...utils.profiler import ResourceMonitor
 
-        # if ignore_exception is not provided, taking self.ignore_exception
-        if ignore_exception is None:
-            ignore_exception = self.ignore_exception
-
-        # Tear-up: get current and prev directories
+        # Tear-up: get current and prev directories first
         syscwd = rgetcwd(error=False)  # Recover when wd does not exist
         if cwd is None:
             cwd = syscwd
 
-        os.chdir(cwd)  # Change to the interface wd
-
+        # if ignore_exception is not provided, taking self.ignore_exception
+        ignore_exception = ignore_exception is True or self.ignore_exception
         enable_rm = config.resource_monitor and self.resource_monitor
+
         self.inputs.trait_set(**inputs)
         self._check_mandatory_inputs()
         self._check_version_requirements(self.inputs)
-        interface = self.__class__
         self._duecredit_cite()
 
         # initialize provenance tracking
@@ -518,16 +486,16 @@ class BaseInterface(Interface):
         outputs = None
 
         try:
+            os.chdir(cwd)  # Change to the interface wd
             runtime = self._pre_run_hook(runtime)
             runtime = self._run_interface(runtime)
             runtime = self._post_run_hook(runtime)
-            outputs = self.aggregate_outputs(runtime)
         except Exception as e:
             import traceback
             # Retrieve the maximum info fast
             runtime.traceback = traceback.format_exc()
             # Gather up the exception arguments and append nipype info.
-            exc_args = e.args if getattr(e, 'args') else tuple()
+            exc_args = getattr(e, 'args', tuple())
             exc_args += (
                 'An exception of type %s occurred while running interface %s.'
                 % (type(e).__name__, self.__class__.__name__), )
@@ -541,20 +509,22 @@ class BaseInterface(Interface):
             if not ignore_exception:
                 raise
         finally:
+            os.chdir(syscwd)  # Get back ASAP
+
             if runtime is None or runtime_attrs - set(runtime.dictcopy()):
                 raise RuntimeError("{} interface failed to return valid "
                                    "runtime object".format(
-                                       interface.__class__.__name__))
+                                       self.__class__.__name__))
             # This needs to be done always
             runtime.endTime = dt.isoformat(dt.utcnow())
             timediff = parseutc(runtime.endTime) - parseutc(runtime.startTime)
             runtime.duration = (timediff.days * 86400 + timediff.seconds +
                                 timediff.microseconds / 1e6)
             results = InterfaceResult(
-                interface,
+                self.__class__,
                 runtime,
                 inputs=inputs,
-                outputs=outputs,
+                outputs=self.aggregate_outputs(runtime),
                 provenance=None)
 
             # Add provenance (if required)
@@ -583,8 +553,6 @@ class BaseInterface(Interface):
                         'rss_GiB': (vals[:, 2] / 1024).tolist(),
                         'vms_GiB': (vals[:, 3] / 1024).tolist(),
                     }
-            os.chdir(syscwd)
-
         return results
 
     def _list_outputs(self):
