@@ -366,8 +366,7 @@ class BaseInterface(Interface):
             self._check_requires(spec, name, getattr(self.inputs, name))
 
     def _check_version_requirements(self, trait_object, raise_exception=True):
-        """ Raises an exception on version mismatch
-        """
+        """Raises an exception on version mismatch"""
         unavailable_traits = []
         # check minimum version
         check = dict(min_ver=lambda t: t is not None)
@@ -560,13 +559,12 @@ class BaseInterface(Interface):
         """
         if self.output_spec:
             raise NotImplementedError
-        else:
-            return None
+
+        return {}
 
     def aggregate_outputs(self, runtime=None, needed_outputs=None):
         """ Collate expected outputs and check for existence
         """
-
         listed_outputs = self._list_outputs()
         outputs = self._outputs()
 
@@ -580,9 +578,9 @@ class BaseInterface(Interface):
         # Check whether some outputs are unavailable
         unavailable_outputs = []
         if outputs:
-            unavailable_outputs = \
-                list(self._check_version_requirements(outputs).keys())
-        if predicted_outputs.intersection(unavailable_outputs.keys()):
+            unavailable_outputs = self._check_version_requirements(
+                outputs, raise_exception=False)
+        if predicted_outputs.intersection(unavailable_outputs):
             raise KeyError((
                 'Output traits %s are not available in version '
                 '%s of interface %s. Please inform developers.') % (
@@ -612,9 +610,7 @@ class BaseInterface(Interface):
         return self._version
 
     def load_inputs_from_json(self, json_file, overwrite=True):
-        """
-        A convenient way to load pre-set inputs from a JSON file.
-        """
+        """A convenient way to load pre-set inputs from a JSON file."""
 
         with open(json_file) as fhandle:
             inputs_dict = json.load(fhandle)
@@ -629,11 +625,9 @@ class BaseInterface(Interface):
                 setattr(self.inputs, key, inputs_dict[key])
 
     def save_inputs_to_json(self, json_file):
-        """
-        A convenient way to save current inputs to a JSON file.
-        """
+        """A convenient way to save current inputs to a JSON file."""
         inputs = self.inputs.get_traitsfree()
-        iflogger.debug('saving inputs {}', inputs)
+        iflogger.debug('saving inputs %s', inputs)
         with open(json_file, 'w' if PY3 else 'wb') as fhandle:
             json.dump(inputs, fhandle, indent=4, ensure_ascii=False)
 
@@ -896,7 +890,7 @@ class CommandLine(BaseInterface):
 
     @classmethod
     def help(cls, returnhelp=False):
-        allhelp = 'Wraps command **{cmd}**\n\n{help}'.format(
+        allhelp = 'Wraps command ``{cmd}``.\n\n{help}'.format(
             cmd=cls._cmd, help=super(CommandLine, cls).help(returnhelp=True))
         if returnhelp:
             return allhelp
