@@ -443,7 +443,7 @@ class BaseInterface(Interface):
 
         # if ignore_exception is not provided, taking self.ignore_exception
         ignore_exception = ignore_exception is True or self.ignore_exception
-        enable_rm = config.resource_monitor and self.resource_monitor
+        enable_resmon = config.resource_monitor and self.resource_monitor
 
         self.inputs.trait_set(**inputs)
         self._check_mandatory_inputs()
@@ -471,7 +471,7 @@ class BaseInterface(Interface):
         runtime_attrs = set(runtime.dictcopy())
 
         mon_sp = None
-        if enable_rm:
+        if enable_resmon:
             mon_freq = float(
                 config.get('execution', 'resource_monitor_frequency', 1))
             proc_pid = os.getpid()
@@ -533,7 +533,7 @@ class BaseInterface(Interface):
                 results.provenance = write_provenance(results)
 
             # Make sure runtime profiler is shut down
-            if enable_rm:
+            if enable_resmon:
                 import numpy as np
                 mon_sp.stop()
 
@@ -567,30 +567,39 @@ class BaseInterface(Interface):
         """ Collate expected outputs and check for existence
         """
 
-        predicted_outputs = self._list_outputs()
+        listed_outputs = self._list_outputs()
         outputs = self._outputs()
-        if predicted_outputs:
-            _unavailable_outputs = []
-            if outputs:
-                _unavailable_outputs = \
-                    self._check_version_requirements(self._outputs())
-            for key, val in list(predicted_outputs.items()):
-                if needed_outputs and key not in needed_outputs:
-                    continue
-                if key in _unavailable_outputs:
-                    raise KeyError(('Output trait %s not available in version '
-                                    '%s of interface %s. Please inform '
-                                    'developers.') % (key, self.version,
-                                                      self.__class__.__name__))
-                try:
-                    setattr(outputs, key, val)
-                except TraitError as error:
-                    if getattr(error, 'info',
-                               'default').startswith('an existing'):
-                        msg = ("File/Directory '%s' not found for %s output "
-                               "'%s'." % (val, self.__class__.__name__, key))
-                        raise FileNotFoundError(msg)
-                    raise error
+
+        # See whether there are outputs set
+        predicted_outputs = set(list(listed_outputs.keys()))
+        if not predicted_outputs:
+            return outputs
+
+        needed_outputs = set(needed_outputs or [])
+
+        # Check whether some outputs are unavailable
+        unavailable_outputs = []
+        if outputs:
+            unavailable_outputs = \
+                list(self._check_version_requirements(outputs).keys())
+        if predicted_outputs.intersection(unavailable_outputs.keys()):
+            raise KeyError((
+                'Output traits %s are not available in version '
+                '%s of interface %s. Please inform developers.') % (
+                ', '.join(['"%s"' % s for s in unavailable_outputs]), self.version,
+                          self.__class__.__name__))
+
+        for name in predicted_outputs.intersection(needed_outputs):
+            value = listed_outputs[name]
+            try:
+                setattr(outputs, name, value)
+            except TraitError as error:
+                if getattr(error, 'info',
+                           'default').startswith('an existing'):
+                    raise FileNotFoundError(
+                        "File/Directory '%s' not found for %s output "
+                        "'%s'." % (value, self.__class__.__name__, name))
+                raise error
 
         return outputs
 
