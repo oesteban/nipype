@@ -67,7 +67,7 @@ class FileActions(object):
             raise TypeError(
                 "new_fd must be an int not {0}.".format(type(new_fd).__name__))
 
-        res =  lib.posix_spawn_file_actions_adddup2(
+        res = lib.posix_spawn_file_actions_adddup2(
             self._actions_t, fd, new_fd)
         _check_error(res)
 

@@ -14,7 +14,7 @@ import locale
 import datetime
 from subprocess import Popen, STDOUT, PIPE
 from .filemanip import canonicalize_env, read_stream
-
+from ..external.spawn import posix_spawn, FileActions
 from .. import logging
 
 from builtins import range, object
@@ -80,124 +80,167 @@ def run_command(runtime, output=None, timeout=0.01):
     The returned runtime contains a merged stdout+stderr log with timestamps
     """
 
-    # Init variables
     cmdline = runtime.cmdline
-    env = canonicalize_env(runtime.environ)
+    env = getattr(runtime, 'environ', os.environ)
+    cwd = os.path.abspath(getattr(runtime, 'cwd', os.getcwd()))
+    shell = getattr(runtime, 'shell', False)
 
-    errfile = None
-    outfile = None
-    stdout = PIPE
-    stderr = PIPE
+    executable = cmdline.strip()
+    args = []
+    if ' ' in executable:
+        executable, args = cmdline.strip().split(' ', 1)
+        args = [args]
 
-    if output == 'file':
-        outfile = os.path.join(runtime.cwd, 'output.nipype')
-        stdout = open(outfile, 'wb')  # t=='text'===default
-        stderr = STDOUT
-    elif output == 'file_split':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
-    elif output == 'file_stdout':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-    elif output == 'file_stderr':
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
+    if env:
+        env = {os.fsencode(k): os.fsencode(v)
+               for k, v in list(env.items())}
 
-    proc = Popen(
-        cmdline,
-        stdout=stdout,
-        stderr=stderr,
-        shell=True,
-        cwd=runtime.cwd,
-        env=env,
-        close_fds=(not sys.platform.startswith('win')),
-    )
+    outfname = os.path.join(cwd, 'nipype.out')
+    outfd = open(outfname, 'w+')
+    errfname = os.path.join(cwd, 'nipype.err')
+    errfd = open(errfname, 'w+')
 
-    result = {
-        'stdout': [],
-        'stderr': [],
-        'merged': [],
-    }
+    # Tell posix_spawn to replace the child's stdout with the write end of the pipe.
+    file_actions = FileActions()
+    file_actions.add_dup2(outfd.fileno(), 1)
+    file_actions.add_dup2(errfd.fileno(), 2)
 
-    if output == 'stream':
-        streams = [
-            Stream('stdout', proc.stdout),
-            Stream('stderr', proc.stderr)
-        ]
+    if shell is True:
+        args = ['-c', executable] + args
+        executable = '/bin/sh'
 
-        def _process(drain=0):
-            try:
-                res = select.select(streams, [], [], timeout)
-            except select.error as e:
-                iflogger.info(e)
-                if e[0] == errno.EINTR:
-                    return
-                else:
-                    raise
-            else:
-                for stream in res[0]:
-                    stream.read(drain)
+    pid = posix_spawn(executable.encode(),
+                      [executable.encode()] + [a.encode() for a in args],
+                      file_actions=file_actions, env=env)
 
-        while proc.returncode is None:
-            proc.poll()
-            _process()
+    outfd.close()
+    errfd.close()
 
-        _process(drain=1)
+    # Replace FD with a file object.
+    # f = os.fdopen(c2pread, "r")
+    # And get the output.
+    # f.read()  # Returns "Hello world!\n"
+    # Clean up the child process.
+    _, exitcode = os.waitpid(pid, 0)
+    runtime.cpid = pid
+    runtime.returncode = exitcode
 
-        # collect results, merge and return
-        result = {}
-        temp = []
-        for stream in streams:
-            rows = stream._rows
-            temp += rows
-            result[stream._name] = [r[2] for r in rows]
-        temp.sort()
-        result['merged'] = [r[1] for r in temp]
+    # errfile = None
+    # outfile = None
+    # stdout = PIPE
+    # stderr = PIPE
 
-    if output.startswith('file'):
-        proc.wait()
-        if outfile is not None:
-            stdout.flush()
-            stdout.close()
-            with open(outfile, 'rb') as ofh:
-                stdoutstr = ofh.read()
-            result['stdout'] = read_stream(stdoutstr, logger=iflogger)
-            del stdoutstr
+    # if output == 'file':
+    #     outfile = os.path.join(runtime.cwd, 'output.nipype')
+    #     stdout = open(outfile, 'wb')  # t=='text'===default
+    #     stderr = STDOUT
+    # elif output == 'file_split':
+    #     outfile = os.path.join(runtime.cwd, 'stdout.nipype')
+    #     stdout = open(outfile, 'wb')
+    #     errfile = os.path.join(runtime.cwd, 'stderr.nipype')
+    #     stderr = open(errfile, 'wb')
+    # elif output == 'file_stdout':
+    #     outfile = os.path.join(runtime.cwd, 'stdout.nipype')
+    #     stdout = open(outfile, 'wb')
+    # elif output == 'file_stderr':
+    #     errfile = os.path.join(runtime.cwd, 'stderr.nipype')
+    #     stderr = open(errfile, 'wb')
 
-        if errfile is not None:
-            stderr.flush()
-            stderr.close()
-            with open(errfile, 'rb') as efh:
-                stderrstr = efh.read()
-            result['stderr'] = read_stream(stderrstr, logger=iflogger)
-            del stderrstr
+    # proc = Popen(
+    #     cmdline,
+    #     stdout=stdout,
+    #     stderr=stderr,
+    #     shell=True,
+    #     cwd=runtime.cwd,
+    #     env=env,
+    #     close_fds=(not sys.platform.startswith('win')),
+    # )
 
-        if output == 'file':
-            result['merged'] = result['stdout']
-            result['stdout'] = []
-    else:
-        stdout, stderr = proc.communicate()
-        if output == 'allatonce':  # Discard stdout and stderr otherwise
-            result['stdout'] = read_stream(stdout, logger=iflogger)
-            result['stderr'] = read_stream(stderr, logger=iflogger)
+    # result = {
+    #     'stdout': [],
+    #     'stderr': [],
+    #     'merged': [],
+    # }
 
-    runtime.returncode = proc.returncode
-    try:
-        proc.terminate()  # Ensure we are done
-    except OSError as error:
-        # Python 2 raises when the process is already gone
-        if error.errno != errno.ESRCH:
-            raise
+    # if output == 'stream':
+    #     streams = [
+    #         Stream('stdout', proc.stdout),
+    #         Stream('stderr', proc.stderr)
+    #     ]
 
-    # Dereference & force GC for a cleanup
-    del proc
-    del stdout
-    del stderr
-    gc.collect()
+    #     def _process(drain=0):
+    #         try:
+    #             res = select.select(streams, [], [], timeout)
+    #         except select.error as e:
+    #             iflogger.info(e)
+    #             if e[0] == errno.EINTR:
+    #                 return
+    #             else:
+    #                 raise
+    #         else:
+    #             for stream in res[0]:
+    #                 stream.read(drain)
 
-    runtime.stderr = '\n'.join(result['stderr'])
-    runtime.stdout = '\n'.join(result['stdout'])
-    runtime.merged = '\n'.join(result['merged'])
+    #     while proc.returncode is None:
+    #         proc.poll()
+    #         _process()
+
+    #     _process(drain=1)
+
+    #     # collect results, merge and return
+    #     result = {}
+    #     temp = []
+    #     for stream in streams:
+    #         rows = stream._rows
+    #         temp += rows
+    #         result[stream._name] = [r[2] for r in rows]
+    #     temp.sort()
+    #     result['merged'] = [r[1] for r in temp]
+
+    # if output.startswith('file'):
+    #     proc.wait()
+    #     if outfile is not None:
+    #         stdout.flush()
+    #         stdout.close()
+    #         with open(outfile, 'rb') as ofh:
+    #             stdoutstr = ofh.read()
+    #         result['stdout'] = read_stream(stdoutstr, logger=iflogger)
+    #         del stdoutstr
+
+    #     if errfile is not None:
+    #         stderr.flush()
+    #         stderr.close()
+    #         with open(errfile, 'rb') as efh:
+    #             stderrstr = efh.read()
+    #         result['stderr'] = read_stream(stderrstr, logger=iflogger)
+    #         del stderrstr
+
+    #     if output == 'file':
+    #         result['merged'] = result['stdout']
+    #         result['stdout'] = []
+    # else:
+    #     stdout, stderr = proc.communicate()
+    #     if output == 'allatonce':  # Discard stdout and stderr otherwise
+    #         result['stdout'] = read_stream(stdout, logger=iflogger)
+    #         result['stderr'] = read_stream(stderr, logger=iflogger)
+
+    # runtime.returncode = proc.returncode
+    # try:
+    #     proc.terminate()  # Ensure we are done
+    # except OSError as error:
+    #     # Python 2 raises when the process is already gone
+    #     if error.errno != errno.ESRCH:
+    #         raise
+
+    # # Dereference & force GC for a cleanup
+    # del proc
+    # del stdout
+    # del stderr
+    # gc.collect()
+
+    with open(outfname) as stdoutfh:
+        runtime.stdout = stdoutfh.read()
+
+    with open(errfname) as stderrfh:
+        runtime.stderr = stderrfh.read()
     return runtime
