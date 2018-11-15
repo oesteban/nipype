@@ -13,7 +13,6 @@ nibabel denoted by ## START - COPIED FROM NIBABEL and a corresponding ## END
 """
 # Build helper
 import sys
-from glob import glob
 import os
 from os.path import join as pjoin
 from io import open
@@ -139,8 +138,8 @@ def main():
         author_email=ldict['AUTHOR_EMAIL'],
         platforms=ldict['PLATFORMS'],
         version=ldict['VERSION'],
-        install_requires=ldict['REQUIRES'],
-        setup_requires=SETUP_REQUIRES,
+        install_requires=ldict['REQUIRES'] + ["cffi>=1.0.0"],
+        setup_requires=SETUP_REQUIRES + ["cffi>=1.0.0"],
         provides=ldict['PROVIDES'],
         packages=find_packages(),
         package_data={'nipype': testdatafiles},
@@ -151,7 +150,8 @@ def main():
         entry_points='''
            [console_scripts]
            nipypecli=nipype.scripts.cli:cli
-        '''
+        ''',
+        cffi_modules=["_cffi_spawn/_build.py:maker"],
     )
 
 if __name__ == "__main__":

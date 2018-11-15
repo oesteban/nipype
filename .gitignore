@@ -29,3 +29,5 @@ __pycache__/
 .ipynb_checkpoints/
 .ruby-version
 .pytest_cache
+# CFFI/posix_spawn build objects
+_cffi_spawn/cdef.h.1
