@@ -12,6 +12,7 @@ import errno
 import select
 import locale
 import datetime
+from tempfile import mkdtemp
 from subprocess import Popen, STDOUT, PIPE
 from .filemanip import canonicalize_env, read_stream
 from ..external.spawn import posix_spawn, FileActions
@@ -82,14 +83,14 @@ def run_command(runtime, output=None, timeout=0.01):
 
     cmdline = runtime.cmdline
     env = getattr(runtime, 'environ', os.environ)
-    cwd = os.path.abspath(getattr(runtime, 'cwd', os.getcwd()))
+    cwd = os.path.abspath(getattr(runtime, 'cwd', mkdtemp()))
     shell = getattr(runtime, 'shell', False)
 
     executable = cmdline.strip()
     args = []
     if ' ' in executable:
         executable, args = cmdline.strip().split(' ', 1)
-        args = [args]
+        args = args.split(' ')
 
     if env:
         env = {os.fsencode(k): os.fsencode(v)
@@ -109,8 +110,9 @@ def run_command(runtime, output=None, timeout=0.01):
         args = ['-c', executable] + args
         executable = '/bin/sh'
 
+    argv = [executable.encode()] + [a.encode() for a in args]
     pid = posix_spawn(executable.encode(),
-                      [executable.encode()] + [a.encode() for a in args],
+                      argv,
                       file_actions=file_actions, env=env)
 
     outfd.close()

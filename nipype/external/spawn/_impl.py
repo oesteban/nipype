@@ -97,7 +97,7 @@ def posix_spawn(path, args, env=None, file_actions=None, attributes=None):
     env_list = [ffi.new("char[]", b"=".join([key, value]))
                 for key, value in env.items()] + [ffi.NULL]
 
-    res = lib.posix_spawn(
+    res = lib.posix_spawnp(
         pid,
         path,
         file_actions,
