@@ -13,11 +13,12 @@ import select
 import locale
 import datetime
 from subprocess import Popen, STDOUT, PIPE
+from builtins import range, object
+
 from .filemanip import canonicalize_env, read_stream
 
 from .. import logging
 
-from builtins import range, object
 
 iflogger = logging.getLogger('nipype.interface')
 
@@ -74,7 +75,7 @@ class Stream(object):
         self._lastidx = len(self._rows)
 
 
-def run_command(runtime, output=None, timeout=0.01):
+def run_command(runtime, output=None):
     """Run a command, read stdout and stderr, prefix with timestamp.
 
     The returned runtime contains a merged stdout+stderr log with timestamps
@@ -84,105 +85,29 @@ def run_command(runtime, output=None, timeout=0.01):
     cmdline = runtime.cmdline
     env = canonicalize_env(runtime.environ)
 
-    errfile = None
-    outfile = None
-    stdout = PIPE
-    stderr = PIPE
+    # Open files to redirect output to
+    outfile = os.path.join(runtime.cwd, 'nipype.out')
+    stdout = open(outfile, 'wb')
 
-    if output == 'file':
-        outfile = os.path.join(runtime.cwd, 'output.nipype')
-        stdout = open(outfile, 'wb')  # t=='text'===default
-        stderr = STDOUT
-    elif output == 'file_split':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
-    elif output == 'file_stdout':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-    elif output == 'file_stderr':
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
+    errfile = os.path.join(runtime.cwd, 'nipype.err')
+    stderr = open(errfile, 'wb')
 
+    # Fork new process
     proc = Popen(
         cmdline,
-        stdout=stdout,
-        stderr=stderr,
+        stdout=stdout.fileno(),
+        stderr=stderr.fileno(),
         shell=True,
         cwd=runtime.cwd,
         env=env,
         close_fds=(not sys.platform.startswith('win')),
     )
 
-    result = {
-        'stdout': [],
-        'stderr': [],
-        'merged': [],
-    }
+    # if output == 'stream':
+    # Start a thread that runs os.stat on logfiles and
+    # prints to log if something new is found.
 
-    if output == 'stream':
-        streams = [
-            Stream('stdout', proc.stdout),
-            Stream('stderr', proc.stderr)
-        ]
-
-        def _process(drain=0):
-            try:
-                res = select.select(streams, [], [], timeout)
-            except select.error as e:
-                iflogger.info(e)
-                if e[0] == errno.EINTR:
-                    return
-                else:
-                    raise
-            else:
-                for stream in res[0]:
-                    stream.read(drain)
-
-        while proc.returncode is None:
-            proc.poll()
-            _process()
-
-        _process(drain=1)
-
-        # collect results, merge and return
-        result = {}
-        temp = []
-        for stream in streams:
-            rows = stream._rows
-            temp += rows
-            result[stream._name] = [r[2] for r in rows]
-        temp.sort()
-        result['merged'] = [r[1] for r in temp]
-
-    if output.startswith('file'):
-        proc.wait()
-        if outfile is not None:
-            stdout.flush()
-            stdout.close()
-            with open(outfile, 'rb') as ofh:
-                stdoutstr = ofh.read()
-            result['stdout'] = read_stream(stdoutstr, logger=iflogger)
-            del stdoutstr
-
-        if errfile is not None:
-            stderr.flush()
-            stderr.close()
-            with open(errfile, 'rb') as efh:
-                stderrstr = efh.read()
-            result['stderr'] = read_stream(stderrstr, logger=iflogger)
-            del stderrstr
-
-        if output == 'file':
-            result['merged'] = result['stdout']
-            result['stdout'] = []
-    else:
-        stdout, stderr = proc.communicate()
-        if output == 'allatonce':  # Discard stdout and stderr otherwise
-            result['stdout'] = read_stream(stdout, logger=iflogger)
-            result['stderr'] = read_stream(stderr, logger=iflogger)
-
+    proc.wait()
     runtime.returncode = proc.returncode
     try:
         proc.terminate()  # Ensure we are done
@@ -191,13 +116,16 @@ def run_command(runtime, output=None, timeout=0.01):
         if error.errno != errno.ESRCH:
             raise
 
+    # Close files
+    stdout.close()
+    stderr.close()
+
     # Dereference & force GC for a cleanup
     del proc
     del stdout
     del stderr
     gc.collect()
 
-    runtime.stderr = '\n'.join(result['stderr'])
-    runtime.stdout = '\n'.join(result['stdout'])
-    runtime.merged = '\n'.join(result['merged'])
+    runtime.stderr = errfile
+    runtime.stdout = outfile
     return runtime

@@ -7,6 +7,7 @@ Utilities to keep track of performance
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
 
+import os
 import threading
 from time import time
 try:
@@ -29,8 +30,10 @@ class ResourceMonitor(threading.Thread):
     A ``Thread`` to monitor a specific PID with a certain frequence
     to a file
     """
+    __slots__ = ['_fname', '_logfile', '_freq', '_python', '_process',
+                 '_event']
 
-    def __init__(self, pid, freq=5, fname=None, python=True):
+    def __init__(self, pid, freq=5, fname=None, cwd=None, python=True):
         # Make sure psutil is imported
         import psutil
 
@@ -40,7 +43,10 @@ class ResourceMonitor(threading.Thread):
 
         if fname is None:
             fname = '.proc-%d_time-%s_freq-%0.2f' % (pid, time(), freq)
-        self._fname = fname
+
+        if cwd:
+            fname = os.path.join(cwd, fname)
+        self._fname = os.path.abspath(fname)
         self._logfile = open(self._fname, 'w')
         self._freq = freq
         self._python = python

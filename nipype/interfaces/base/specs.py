@@ -18,6 +18,7 @@ from warnings import warn
 from builtins import str, bytes
 from packaging.version import Version
 
+from ...external.due import due
 from ...utils.filemanip import md5, hash_infile, hash_timestamp, to_str
 from .traits_extension import (
     traits,
@@ -375,3 +376,337 @@ class MpiCommandLineInputSpec(CommandLineInputSpec):
     n_procs = traits.Int(desc="Num processors to specify to mpiexec. Do not "
                          "specify if this is managed externally (e.g. through "
                          "SGE)")
+
+
+def get_metadata(input_spec, metadata_key):
+    """Query traits with a given metadata not None"""
+    metadata = {metadata_key: lambda t: t is not None}
+    info = [{'key': name, metadata_key: traitobj.copyfile}
+        for name, traitobj in sorted(input_spec().traits(**metadata).items())
+    ]
+    return info
+
+
+def get_filecopy_info(input_spec):
+    """Provides information about file inputs to copy or link to cwd.
+    Necessary for pipeline operation
+    """
+    metadata = dict(copyfile=lambda t: t is not None)
+    for name, traitobj in sorted(input_spec().traits(**metadata).items()):
+        info.append(dict(key=name, copy=traitobj.copyfile))
+    return info
+
+
+def check_inputs(inputs, raise_exception=False):
+    """
+    Check a traited spec of inputs: xor'ed, require'd and version'ed inputs.
+
+    Parameters
+    ----------
+
+    inputs : InputSpec
+        InputSpec object to be checked
+    raise_exception : bool
+        If ``True`` an exception will be issued, warnings otherwise.
+    """
+
+    return True
+
+
+    def _check_mandatory_inputs(self):
+        """ Raises an exception if a mandatory input is Undefined
+        """
+        for name, spec in list(self.inputs.traits(mandatory=True).items()):
+            value = getattr(self.inputs, name)
+            self._check_xor(spec, name, value)
+            # Check xor
+            values = [
+                isdefined(getattr(self.inputs, field)) for field in spec.xor
+            ]
+            if not isdefined(value) and spec.xor is None:
+                msg = ("%s requires a value for input '%s'. "
+                       "For a list of required inputs, see %s.help()" %
+                       (self.__class__.__name__, name,
+                        self.__class__.__name__))
+                raise ValueError(msg)
+            if isdefined(value) and spec.requires:
+                requires_list = [
+                    not isdefined(getattr(self.inputs, field))
+                    for field in spec.requires
+                ]
+        for name, spec in list(
+                self.inputs.traits(mandatory=None, transient=None).items()):
+            self._check_requires(spec, name, getattr(self.inputs, name))
+
+    def _check_version_requirements(self, trait_object, raise_exception=True):
+        """Raises an exception on version mismatch"""
+        unavailable_traits = []
+        # check minimum version
+        check = dict(min_ver=lambda t: t is not None)
+        names = trait_object.trait_names(**check)
+
+        if names and self.version:
+            version = LooseVersion(str(self.version))
+            for name in names:
+                min_ver = LooseVersion(
+                    str(trait_object.traits()[name].min_ver))
+                if min_ver > version:
+                    unavailable_traits.append(name)
+                    if not isdefined(getattr(trait_object, name)):
+                        continue
+                    if raise_exception:
+                        raise Exception(
+                            'Trait %s (%s) (version %s < required %s)' %
+                            (name, self.__class__.__name__, version, min_ver))
+
+        # check maximum version
+        check = dict(max_ver=lambda t: t is not None)
+        names = trait_object.trait_names(**check)
+        if names and self.version:
+            version = LooseVersion(str(self.version))
+            for name in names:
+                max_ver = LooseVersion(
+                    str(trait_object.traits()[name].max_ver))
+                if max_ver < version:
+                    unavailable_traits.append(name)
+                    if not isdefined(getattr(trait_object, name)):
+                        continue
+                    if raise_exception:
+                        raise Exception(
+                            'Trait %s (%s) (version %s > required %s)' %
+                            (name, self.__class__.__name__, version, max_ver))
+        return unavailable_traits
+
+    def _list_outputs(self):
+        """ List the expected outputs
+        """
+        if self.output_spec:
+            raise NotImplementedError
+
+        return {}
+
+    def aggregate_outputs(self, runtime=None, needed_outputs=None):
+        """ Collate expected outputs and check for existence
+        """
+        listed_outputs = self._list_outputs()
+
+        # See whether there are outputs set
+        predicted_outputs = set(list(listed_outputs.keys()))
+        if not predicted_outputs:
+            return outputs
+
+        needed_outputs = set(needed_outputs or [])
+
+        # Check whether some outputs are unavailable
+        unavailable_outputs = []
+        if outputs:
+            unavailable_outputs = self._check_version_requirements(
+                outputs, raise_exception=False)
+        if predicted_outputs.intersection(unavailable_outputs):
+            raise KeyError((
+                'Output traits %s are not available in version '
+                '%s of interface %s. Please inform developers.') % (
+                ', '.join(['"%s"' % s for s in unavailable_outputs]), self.version,
+                          self.__class__.__name__))
+
+        for name in predicted_outputs.intersection(needed_outputs):
+            value = listed_outputs[name]
+            try:
+                setattr(outputs, name, value)
+            except TraitError as error:
+                if getattr(error, 'info',
+                           'default').startswith('an existing'):
+                    raise FileNotFoundError(
+                        "File/Directory '%s' not found for %s output "
+                        "'%s'." % (value, self.__class__.__name__, name))
+                raise error
+
+        return outputs
+
+
+
+
+    def load_inputs_from_json(self, json_file, overwrite=True):
+        """A convenient way to load pre-set inputs from a JSON file."""
+
+        with open(json_file) as fhandle:
+            inputs_dict = json.load(fhandle)
+
+        def_inputs = []
+        if not overwrite:
+            def_inputs = list(self.inputs.get_traitsfree().keys())
+
+        new_inputs = [i for i in set(list(inputs_dict.keys())) - set(def_inputs)]
+        for key in new_inputs:
+            if hasattr(self.inputs, key):
+                setattr(self.inputs, key, inputs_dict[key])
+
+    def save_inputs_to_json(self, json_file):
+        """A convenient way to save current inputs to a JSON file."""
+        inputs = self.inputs.get_traitsfree()
+        iflogger.debug('saving inputs %s', inputs)
+        with open(json_file, 'w' if PY3 else 'wb') as fhandle:
+            json.dump(inputs, fhandle, indent=4, ensure_ascii=False)
+
+    def _format_arg(self, name, trait_spec, value):
+        """A helper function for _parse_inputs
+
+        Formats a trait containing argstr metadata
+        """
+        argstr = trait_spec.argstr
+        iflogger.debug('%s_%s', name, value)
+        if trait_spec.is_trait_type(traits.Bool) and "%" not in argstr:
+            # Boolean options have no format string. Just append options if True.
+            return argstr if value else None
+        # traits.Either turns into traits.TraitCompound and does not have any
+        # inner_traits
+        elif trait_spec.is_trait_type(traits.List) \
+            or (trait_spec.is_trait_type(traits.TraitCompound) and
+                isinstance(value, list)):
+            # This is a bit simple-minded at present, and should be
+            # construed as the default. If more sophisticated behavior
+            # is needed, it can be accomplished with metadata (e.g.
+            # format string for list member str'ification, specifying
+            # the separator, etc.)
+
+            # Depending on whether we stick with traitlets, and whether or
+            # not we beef up traitlets.List, we may want to put some
+            # type-checking code here as well
+            sep = trait_spec.sep if trait_spec.sep is not None else ' '
+
+            if argstr.endswith('...'):
+                # repeatable option
+                # --id %d... will expand to
+                # --id 1 --id 2 --id 3 etc.,.
+                argstr = argstr.replace('...', '')
+                return sep.join([argstr % elt for elt in value])
+            else:
+                return argstr % sep.join(str(elt) for elt in value)
+        else:
+            # Append options using format string.
+            return argstr % value
+
+    def _filename_from_source(self, name, chain=None):
+        if chain is None:
+            chain = []
+
+        trait_spec = self.inputs.trait(name)
+        retval = getattr(self.inputs, name)
+        source_ext = None
+        if not isdefined(retval) or "%s" in retval:
+            if not trait_spec.name_source:
+                return retval
+
+            # Do not generate filename when excluded by other inputs
+            if any(isdefined(getattr(self.inputs, field))
+                   for field in trait_spec.xor or ()):
+                return retval
+
+            # Do not generate filename when required fields are missing
+            if not all(isdefined(getattr(self.inputs, field))
+                       for field in trait_spec.requires or ()):
+                return retval
+
+            if isdefined(retval) and "%s" in retval:
+                name_template = retval
+            else:
+                name_template = trait_spec.name_template
+            if not name_template:
+                name_template = "%s_generated"
+
+            ns = trait_spec.name_source
+            while isinstance(ns, (list, tuple)):
+                if len(ns) > 1:
+                    iflogger.warning(
+                        'Only one name_source per trait is allowed')
+                ns = ns[0]
+
+            if not isinstance(ns, (str, bytes)):
+                raise ValueError(
+                    'name_source of \'{}\' trait should be an input trait '
+                    'name, but a type {} object was found'.format(
+                        name, type(ns)))
+
+            if isdefined(getattr(self.inputs, ns)):
+                name_source = ns
+                source = getattr(self.inputs, name_source)
+                while isinstance(source, list):
+                    source = source[0]
+
+                # special treatment for files
+                try:
+                    _, base, source_ext = split_filename(source)
+                except (AttributeError, TypeError):
+                    base = source
+            else:
+                if name in chain:
+                    raise NipypeInterfaceError(
+                        'Mutually pointing name_sources')
+
+                chain.append(name)
+                base = self._filename_from_source(ns, chain)
+                if isdefined(base):
+                    _, _, source_ext = split_filename(base)
+                else:
+                    # Do not generate filename when required fields are missing
+                    return retval
+
+            chain = None
+            retval = name_template % base
+            _, _, ext = split_filename(retval)
+            if trait_spec.keep_extension and (ext or source_ext):
+                if (ext is None or not ext) and source_ext:
+                    retval = retval + source_ext
+            else:
+                retval = self._overload_extension(retval, name)
+        return retval
+
+    def _gen_filename(self, name):
+        raise NotImplementedError
+
+    def _overload_extension(self, value, name=None):
+        return value
+
+
+    def _parse_inputs(self, skip=None):
+        """Parse all inputs using the ``argstr`` format string in the Trait.
+
+        Any inputs that are assigned (not the default_value) are formatted
+        to be added to the command line.
+
+        Returns
+        -------
+        all_args : list
+            A list of all inputs formatted for the command line.
+
+        """
+        all_args = []
+        initial_args = {}
+        final_args = {}
+        metadata = dict(argstr=lambda t: t is not None)
+        for name, spec in sorted(self.inputs.traits(**metadata).items()):
+            if skip and name in skip:
+                continue
+            value = getattr(self.inputs, name)
+            if spec.name_source:
+                value = self._filename_from_source(name)
+            elif spec.genfile:
+                if not isdefined(value) or value is None:
+                    value = self._gen_filename(name)
+
+            if not isdefined(value):
+                continue
+            arg = self._format_arg(name, spec, value)
+            if arg is None:
+                continue
+            pos = spec.position
+            if pos is not None:
+                if int(pos) >= 0:
+                    initial_args[pos] = arg
+                else:
+                    final_args[pos] = arg
+            else:
+                all_args.append(arg)
+        first_args = [el for _, el in sorted(initial_args.items())]
+        last_args = [el for _, el in sorted(final_args.items())]
+        return first_args + all_args + last_args
