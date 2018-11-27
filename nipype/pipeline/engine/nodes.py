@@ -22,7 +22,8 @@ from logging import INFO
 from tempfile import mkdtemp
 from future import standard_library
 
-from ... import config, logging
+from ... import logging
+from ...utils.config import NODECONFIG, NodeConfig
 from ...utils.misc import flatten, unflatten, str2bool, dict_diff
 from ...utils.filemanip import (md5, FileNotFoundError, ensure_list,
                                 simplify_list, copyfiles, fnames_presuffix,
@@ -40,6 +41,7 @@ from .utils import (
     _node_runner, strip_temp as _strip_temp, write_report,
     clean_working_directory, merge_dict, evaluate_connect_function)
 from .base import EngineBase
+
 
 standard_library.install_aliases()
 
@@ -67,6 +69,16 @@ class Node(EngineBase):
     >>> realign.run() # doctest: +SKIP
 
     """
+    cfg = NODECONFIG
+
+    __slots__ = [
+        '_interface', '_got_inputs', '_originputs',
+        '_output_dir', 'iterables', 'synchronize',
+        'itersource', 'overwrite', 'parameterization',
+        'input_source', 'plugin_args', 'run_without_submitting',
+        '_mem_gb', '_n_procs', '_hashvalue', '_hashed_inputs',
+        '_needed_outputs',
+     ]
 
     def __init__(self,
                  interface,
@@ -155,9 +167,9 @@ class Node(EngineBase):
             raise IOError('interface must be an instance of an Interface')
 
         super(Node, self).__init__(name, kwargs.get('base_dir'))
+        self._hierarchy = None
 
         self._interface = interface
-        self._hierarchy = None
         self._got_inputs = False
         self._originputs = None
         self._output_dir = None
@@ -184,7 +196,6 @@ class Node(EngineBase):
         self._hashed_inputs = None
         self._needed_outputs = []
         self.needed_outputs = needed_outputs
-        self.config = None
 
     @property
     def interface(self):
@@ -264,7 +275,7 @@ class Node(EngineBase):
             outputdir = op.join(outputdir, *self._hierarchy.split('.'))
         if self.parameterization:
             params_str = ['{}'.format(p) for p in self.parameterization]
-            if not str2bool(self.config['execution']['parameterize_dirs']):
+            if not self.cfg.parameterize_dirs:
                 params_str = [_parameterization_dir(p) for p in params_str]
             outputdir = op.join(outputdir, *params_str)
 
@@ -385,7 +396,7 @@ class Node(EngineBase):
 
         return cached, self._hashvalue, hashfile, self._hashed_inputs
 
-    def run(self, updatehash=False):
+    def run(self, updatehash=False, config=None):
         """Execute the node in its directory.
 
         Parameters
@@ -395,11 +406,12 @@ class Node(EngineBase):
             When the hash stored in the output directory as a result of a previous run
             does not match that calculated for this execution, updatehash=True only
             updates the hash without re-running.
+        config: configparser object
+            Allows to dynamically modify relevant options
         """
 
-        if self.config is None:
-            self.config = {}
-        self.config = merge_dict(deepcopy(config._sections), self.config)
+        if config is not None:
+            self.cfg = NodeConfig(config)
 
         outdir = self.output_dir()
         force_run = self.overwrite or (self.overwrite is None and
@@ -430,8 +442,7 @@ class Node(EngineBase):
 
         if cached and updated and not isinstance(self, MapNode):
             logger.debug('[Node] Rerunning cached, up-to-date node "%s"', self.fullname)
-            if not force_run and str2bool(
-                    self.config['execution']['stop_on_first_rerun']):
+            if not force_run and self.cfg.stop_on_first_rerun:
                 raise Exception(
                     'Cannot rerun when "stop_on_first_rerun" is set to True')
 
@@ -490,9 +501,8 @@ class Node(EngineBase):
         self._get_inputs()
         if self._hashvalue is None and self._hashed_inputs is None:
             self._hashed_inputs, self._hashvalue = self.inputs.get_hashval(
-                hash_method=self.config['execution']['hash_method'])
-            rm_extra = self.config['execution']['remove_unnecessary_outputs']
-            if str2bool(rm_extra) and self.needed_outputs:
+                hash_method=self.cfg.hash_method)
+            if self.cfg.remove_unnecessary_outputs and self.needed_outputs:
                 hashobject = md5()
                 hashobject.update(self._hashvalue.encode())
                 hashobject.update(str(self.needed_outputs).encode())
@@ -650,7 +660,7 @@ class Node(EngineBase):
             outdir,
             self._interface.inputs,
             self.needed_outputs,
-            self.config,
+            self.cfg,
             dirs2keep=dirs2keep)
         _save_resultfile(result, outdir, self.name)
 
@@ -1060,9 +1070,8 @@ class MapNode(Node):
             else:
                 setattr(hashinputs, name, getattr(self._inputs, name))
         hashed_inputs, hashvalue = hashinputs.get_hashval(
-            hash_method=self.config['execution']['hash_method'])
-        rm_extra = self.config['execution']['remove_unnecessary_outputs']
-        if str2bool(rm_extra) and self.needed_outputs:
+            hash_method=self.cfg.hash_method)
+        if self.cfg.remove_unnecessary_outputs and self.needed_outputs:
             hashobject = md5()
             hashobject.update(hashvalue.encode())
             sorted_outputs = sorted(self.needed_outputs)
@@ -1114,7 +1123,7 @@ class MapNode(Node):
                     fieldvals = ensure_list(getattr(self.inputs, field))
                 logger.debug('setting input %d %s %s', i, field, fieldvals[i])
                 setattr(node.inputs, field, fieldvals[i])
-            node.config = self.config
+            node.cfg = self.cfg
             yield i, node
 
     def _collate_results(self, nodes):
@@ -1139,9 +1148,7 @@ class MapNode(Node):
 
             if self.outputs:
                 for key, _ in list(self.outputs.items()):
-                    rm_extra = (
-                        self.config['execution']['remove_unnecessary_outputs'])
-                    if str2bool(rm_extra) and self.needed_outputs:
+                    if self.cfg.remove_unnecessary_outputs and self.needed_outputs:
                         if key not in self.needed_outputs:
                             continue
                     values = getattr(finalresult.outputs, key)
@@ -1249,8 +1256,7 @@ class MapNode(Node):
             _node_runner(
                 self._make_nodes(cwd),
                 updatehash=updatehash,
-                stop_first=str2bool(
-                    self.config['execution']['stop_on_first_crash'])))
+                stop_first=self.cfg.stop_on_first_crash))
         # And store results
         _save_resultfile(result, cwd, self.name)
         # remove any node directories no longer required

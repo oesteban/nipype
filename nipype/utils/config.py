@@ -15,6 +15,7 @@ import os
 import sys
 import errno
 import atexit
+from copy import deepcopy
 from warnings import warn
 from distutils.version import LooseVersion
 import configparser
@@ -130,6 +131,11 @@ class NipypeConfig(object):
                      format(os.getenv('PWD', 'unknown')), RuntimeWarning)
                 raise
         return self._cwd
+
+    @property
+    def sections(self):
+        return self._sections
+
 
     def set_default_config(self):
         """Read default settings template and set into config object"""
@@ -366,3 +372,35 @@ def free_display():
     """Stop virtual display (if it is up)"""
     from .. import config
     config.stop_display()
+
+
+class NodeConfig(object):
+    """
+    """
+    __slots__ = [
+        'hash_method',
+        'parameterize_dirs',
+        'remove_unnecessary_outputs',
+        'stop_on_first_crash',
+        'stop_on_first_rerun',
+    ]
+
+    def __init__(self, cfg):
+        self.__setstate__(cfg)
+
+    def __setstate__(self, state):
+        """Necessary for un-pickling"""
+        for key in self.__class__.__slots__:
+            setattr(self, key, state.get(key, None))
+
+    def __getstate__(self):
+        """Necessary for pickling"""
+        outdict = {}
+        for key in self.__class__.__slots__:
+            value = getattr(self, key, None)
+            if value is not None:
+                outdict[key] = value
+        return outdict
+
+
+NODECONFIG = NodeConfig(NipypeConfig().sections['execution'])

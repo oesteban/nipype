@@ -12,15 +12,15 @@ from builtins import object
 
 from copy import deepcopy
 import re
-import numpy as np
 
-from ... import config
 from ...interfaces.base import DynamicTraitedSpec
 from ...utils.filemanip import loadpkl, savepkl
 
 
 class EngineBase(object):
     """Defines common attributes and functions for workflows and nodes."""
+
+    __slots__ = ['_name', '_hierarchy', '_id', 'base_dir']
 
     def __init__(self, name=None, base_dir=None):
         """ Initialize base parameters of a workflow or node
@@ -40,7 +40,6 @@ class EngineBase(object):
         self._id = self.name # for compatibility with node expansion using iterables
 
         self.base_dir = base_dir
-        self.config = deepcopy(config._sections)
 
     @property
     def name(self):
