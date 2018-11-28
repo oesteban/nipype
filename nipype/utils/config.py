@@ -15,7 +15,6 @@ import os
 import sys
 import errno
 import atexit
-from copy import deepcopy
 from warnings import warn
 from distutils.version import LooseVersion
 import configparser
@@ -374,16 +373,10 @@ def free_display():
     config.stop_display()
 
 
-class NodeConfig(object):
+class BaseConfig(object):
     """
     """
-    __slots__ = [
-        'hash_method',
-        'parameterize_dirs',
-        'remove_unnecessary_outputs',
-        'stop_on_first_crash',
-        'stop_on_first_rerun',
-    ]
+    __slots__ = ()
 
     def __init__(self, cfg):
         self.__setstate__(cfg)
@@ -391,7 +384,12 @@ class NodeConfig(object):
     def __setstate__(self, state):
         """Necessary for un-pickling"""
         for key in self.__class__.__slots__:
-            setattr(self, key, state.get(key, None))
+            val = state.get(key, None)
+            try:
+                val = str2bool(val)
+            except ValueError:
+                pass
+            setattr(self, key, val)
 
     def __getstate__(self):
         """Necessary for pickling"""
@@ -402,5 +400,48 @@ class NodeConfig(object):
                 outdict[key] = value
         return outdict
 
+    def dictcopy(self):
+        return self.__getstate__()
 
-NODECONFIG = NodeConfig(NipypeConfig().sections['execution'])
+    def update(self, configdict):
+        configdict = configdict or {}
+        for option in set(configdict).intersection(self.__slots__):
+            setattr(self, option, configdict.get(option))
+
+
+class NodeConfig(BaseConfig):
+    """
+    """
+    __slots__ = (
+        'crashdump_dir',
+        'crashfile_format',
+        'create_report',
+        'hash_method',
+        'matplotlib_backend',
+        'parameterize_dirs',
+        'remove_unnecessary_outputs',
+        'stop_on_first_crash',
+        'stop_on_first_rerun',
+    )
+
+    def __init__(self, cfg, cwd=None):
+        self.__setstate__(cfg, cwd)
+
+    def __setstate__(self, state, cwd=None):
+        """Necessary for un-pickling"""
+        super(NodeConfig, self).__setstate__(state)
+        self.crashdump_dir = self.crashdump_dir or cwd
+
+
+class WorkflowConfig(BaseConfig):
+    __slots__ = (
+        'create_report',
+        'remove_unnecessary_outputs',
+        'plugin',
+        'write_provenance',
+
+    )
+
+
+NODECONFIG = NodeConfig(NipypeConfig().sections['execution'], cwd=NipypeConfig().cwd)
+WFCONFIG = WorkflowConfig(NipypeConfig().sections['execution'])

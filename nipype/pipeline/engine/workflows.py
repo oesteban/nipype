@@ -21,8 +21,9 @@ import shutil
 import numpy as np
 import networkx as nx
 
-from ... import config, logging
-from ...utils.misc import str2bool
+from ... import logging
+from ...utils.config import WFCONFIG
+
 from ...utils.functions import (getsource, create_function_from_source)
 
 from ...interfaces.base import (traits, TraitedSpec, TraitDictObject,
@@ -30,7 +31,7 @@ from ...interfaces.base import (traits, TraitedSpec, TraitDictObject,
 from ...utils.filemanip import save_json, makedirs, to_str
 from .utils import (generate_expanded_graph, export_graph, write_workflow_prov,
                     write_workflow_resources, format_dot, topological_sort,
-                    get_print_name, merge_dict, format_node)
+                    get_print_name, format_node)
 
 from .base import EngineBase
 from .nodes import MapNode
@@ -44,6 +45,11 @@ logger = logging.getLogger('nipype.workflow')
 
 class Workflow(EngineBase):
     """Controls the setup and execution of a pipeline of processes."""
+
+    cfg = WFCONFIG
+    __slots__ = (
+        '_graph',
+    )
 
     def __init__(self, name, base_dir=None):
         """Create a workflow object.
@@ -502,7 +508,7 @@ connected.
             wfdef = '%s = Workflow("%s")' % (self.name, self.name)
             lines.append(wfdef)
             if include_config:
-                lines.append('%s.config = %s' % (self.name, self.config))
+                lines.append('%s.config = %s' % (self.name, self.cfg.dictcopy()))
             for idx, node in enumerate(nodes):
                 nodename = node.fullname.replace('.', '_')
                 # write nodes
@@ -550,7 +556,7 @@ connected.
                 fp.writelines('\n'.join(all_lines))
         return all_lines
 
-    def run(self, plugin=None, plugin_args=None, updatehash=False):
+    def run(self, plugin=None, plugin_args=None, updatehash=False, config=None):
         """ Execute the workflow
 
         Parameters
@@ -562,8 +568,11 @@ connected.
         plugin_args : dictionary containing arguments to be sent to plugin
             constructor. see individual plugin doc strings for details.
         """
-        if plugin is None:
-            plugin = config.get('execution', 'plugin')
+        if config is not None:
+            self.cfg.update(config)
+
+        plugin = plugin or self.cfg.plugin
+
         if not isinstance(plugin, (str, bytes)):
             runner = plugin
             plugin = runner.__class__.__name__[:-len('Plugin')]
@@ -580,23 +589,23 @@ connected.
                 plugin_mod = getattr(sys.modules[name], '%sPlugin' % plugin)
                 runner = plugin_mod(plugin_args=plugin_args)
         flatgraph = self._create_flat_graph()
-        self.config = merge_dict(deepcopy(config._sections), self.config)
+
         logger.info('Workflow %s settings: %s', self.name,
-                    to_str(sorted(self.config)))
+                    to_str(sorted(list(self.cfg.dictcopy().items()))))
         self._set_needed_outputs(flatgraph)
         execgraph = generate_expanded_graph(deepcopy(flatgraph))
         for index, node in enumerate(execgraph.nodes()):
-            node.config = merge_dict(deepcopy(self.config), node.config)
+            node.cfg.update(config)
             node.base_dir = self.base_dir
             node.index = index
             if isinstance(node, MapNode):
                 node.use_plugin = (plugin, plugin_args)
         self._configure_exec_nodes(execgraph)
-        if str2bool(self.config['execution']['create_report']):
+        if self.cfg.create_report:
             self._write_report_info(self.base_dir, self.name, execgraph)
-        runner.run(execgraph, updatehash=updatehash, config=self.config)
+        runner.run(execgraph, updatehash=updatehash, config=config)
         datestr = datetime.utcnow().strftime('%Y%m%dT%H%M%S')
-        if str2bool(self.config['execution']['write_provenance']):
+        if self.cfg.write_provenance:
             prov_base = op.join(self.base_dir,
                                 'workflow_provenance_%s' % datestr)
             logger.info('Provenance file prefix: %s' % prov_base)
@@ -679,8 +688,7 @@ connected.
 
     def _set_needed_outputs(self, graph):
         """Initialize node with list of which outputs are needed."""
-        rm_outputs = self.config['execution']['remove_unnecessary_outputs']
-        if not str2bool(rm_outputs):
+        if not self.cfg.remove_unnecessary_outputs:
             return
         for node in graph.nodes():
             node.needed_outputs = []

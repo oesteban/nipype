@@ -37,7 +37,7 @@ class EngineBase(object):
         """
         self._hierarchy = None
         self.name = name
-        self._id = self.name # for compatibility with node expansion using iterables
+        self._id = self.name  # for compatibility with node expansion using iterables
 
         self.base_dir = base_dir
 

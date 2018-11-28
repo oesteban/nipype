@@ -23,8 +23,8 @@ from tempfile import mkdtemp
 from future import standard_library
 
 from ... import logging
-from ...utils.config import NODECONFIG, NodeConfig
-from ...utils.misc import flatten, unflatten, str2bool, dict_diff
+from ...utils.config import NODECONFIG
+from ...utils.misc import flatten, unflatten, dict_diff
 from ...utils.filemanip import (md5, FileNotFoundError, ensure_list,
                                 simplify_list, copyfiles, fnames_presuffix,
                                 loadpkl, split_filename, load_json, makedirs,
@@ -39,7 +39,7 @@ from .utils import (
     _parameterization_dir, save_hashfile as _save_hashfile, load_resultfile as
     _load_resultfile, save_resultfile as _save_resultfile, nodelist_runner as
     _node_runner, strip_temp as _strip_temp, write_report,
-    clean_working_directory, merge_dict, evaluate_connect_function)
+    clean_working_directory, evaluate_connect_function)
 from .base import EngineBase
 
 
@@ -78,7 +78,7 @@ class Node(EngineBase):
         'input_source', 'plugin_args', 'run_without_submitting',
         '_mem_gb', '_n_procs', '_hashvalue', '_hashed_inputs',
         '_needed_outputs',
-     ]
+    ]
 
     def __init__(self,
                  interface,
@@ -411,7 +411,7 @@ class Node(EngineBase):
         """
 
         if config is not None:
-            self.cfg = NodeConfig(config)
+            self.cfg.update(config)
 
         outdir = self.output_dir()
         force_run = self.overwrite or (self.overwrite is None and
@@ -450,7 +450,6 @@ class Node(EngineBase):
         if cached:
             for outdatedhash in glob(op.join(self.output_dir(), '_0x*.json')):
                 os.remove(outdatedhash)
-
 
         # Hashfile while running
         hashfile_unfinished = op.join(

@@ -32,7 +32,10 @@ def execute_task(pckld_task, node_config, updatehash):
     import os
     cwd = os.getcwd()
     try:
-        config.update_config(node_config)
+
+        config.update_config({
+            'execution': node_config.dictcopy()
+        })
         logging.update_logging(config)
         from pickle import loads
         task = loads(pckld_task)
@@ -111,7 +114,7 @@ class IPythonPlugin(DistributedPluginBase):
     def _submit_job(self, node, updatehash=False):
         pckld_node = dumps(node, 2)
         result_object = self.taskclient.load_balanced_view().apply(
-            execute_task, pckld_node, node.config, updatehash)
+            execute_task, pckld_node, node.cfg, updatehash)
         self._taskid += 1
         self.taskmap[self._taskid] = result_object
         return self._taskid

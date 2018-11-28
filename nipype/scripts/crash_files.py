@@ -76,7 +76,7 @@ def display_crash_file(crashfile, rerun, debug, directory):
             return
         print("Rerunning node")
         node.base_dir = directory
-        node.config = {'execution': {'crashdump_dir': '/tmp'}}
+        node.cfg.crashdump_dir = '/tmp'
         try:
             node.run()
         except:

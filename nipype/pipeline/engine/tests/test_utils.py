@@ -5,7 +5,7 @@
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
-from builtins import range, open
+from builtins import range
 
 import os
 import sys
@@ -176,11 +176,11 @@ def test_mapnode_crash(tmpdir):
         iterfield=['WRONG'],
         name='myfunc')
     node.inputs.WRONG = ['string{}'.format(i) for i in range(3)]
-    node.config = deepcopy(config._sections)
-    node.config['execution']['stop_on_first_crash'] = True
+    node_config = deepcopy(config.sections['execution'])
+    node_config['stop_on_first_crash'] = True
     node.base_dir = tmpdir.strpath
     with pytest.raises(TypeError):
-        node.run()
+        node.run(cfg=node_config)
     os.chdir(cwd)
 
 

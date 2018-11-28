@@ -44,12 +44,12 @@ def report_crash(node, traceback=None, hostname=None):
         login_name = 'UID{:d}'.format(os.getuid())
     crashfile = 'crash-%s-%s-%s-%s' % (timeofcrash, login_name, name,
                                        str(uuid.uuid4()))
-    crashdir = node.config['execution'].get('crashdump_dir', os.getcwd())
+    crashdir = node.cfg.crashdump_dir or os.getcwd()
 
     makedirs(crashdir, exist_ok=True)
     crashfile = os.path.join(crashdir, crashfile)
 
-    if node.config['execution']['crashfile_format'].lower() in ['text', 'txt']:
+    if node.cfg.crashfile_format.lower() in ['text', 'txt']:
         crashfile += '.txt'
     else:
         crashfile += '.pklz'
@@ -97,7 +97,7 @@ def create_pyscript(node, updatehash=False, store_exception=True):
         os.makedirs(batch_dir)
     pkl_file = os.path.join(batch_dir, 'node_%s.pklz' % suffix)
     savepkl(pkl_file, dict(node=node, updatehash=updatehash))
-    mpl_backend = node.config["execution"]["matplotlib_backend"]
+    mpl_backend = node.cfg.matplotlib_backend
     # create python script to load and trap exception
     cmdstr = """import os
 import sys
@@ -158,7 +158,7 @@ except Exception as e:
         report_crash(info['node'], traceback, gethostname())
     raise Exception(e)
 """
-    cmdstr = cmdstr % (mpl_backend, pkl_file, batch_dir, node.config, suffix)
+    cmdstr = cmdstr % (mpl_backend, pkl_file, batch_dir, node.cfg, suffix)
     pyscript = os.path.join(batch_dir, 'pyscript_%s.py' % suffix)
     with open(pyscript, 'wt') as fp:
         fp.writelines(cmdstr)

@@ -36,10 +36,10 @@ def test_1mod(iterables, expected):
     mod1 = pe.Node(interface=EngineTestInterface(), name='mod1')
     setattr(mod1, "iterables", iterables["1"])
     pipe.add_nodes([mod1])
-    pipe._flatgraph = pipe._create_flat_graph()
-    pipe._execgraph = pe.generate_expanded_graph(deepcopy(pipe._flatgraph))
-    assert len(pipe._execgraph.nodes()) == expected[0]
-    assert len(pipe._execgraph.edges()) == expected[1]
+    flatgraph = pipe._create_flat_graph()
+    execgraph = pe.generate_expanded_graph(deepcopy(flatgraph))
+    assert len(execgraph.nodes()) == expected[0]
+    assert len(execgraph.edges()) == expected[1]
 
 
 @pytest.mark.parametrize(
@@ -65,10 +65,10 @@ def test_2mods(iterables, expected):
     for nr in ["1", "2"]:
         setattr(eval("mod" + nr), "iterables", iterables[nr])
     pipe.connect([(mod1, mod2, [('output1', 'input2')])])
-    pipe._flatgraph = pipe._create_flat_graph()
-    pipe._execgraph = pe.generate_expanded_graph(deepcopy(pipe._flatgraph))
-    assert len(pipe._execgraph.nodes()) == expected[0]
-    assert len(pipe._execgraph.edges()) == expected[1]
+    flatgraph = pipe._create_flat_graph()
+    execgraph = pe.generate_expanded_graph(deepcopy(flatgraph))
+    assert len(execgraph.nodes()) == expected[0]
+    assert len(execgraph.edges()) == expected[1]
 
 
 @pytest.mark.parametrize(
@@ -106,14 +106,14 @@ def test_3mods(iterables, expected, connect):
     else:
         raise Exception(
             "connect pattern is not implemented yet within the test function")
-    pipe._flatgraph = pipe._create_flat_graph()
-    pipe._execgraph = pe.generate_expanded_graph(deepcopy(pipe._flatgraph))
-    assert len(pipe._execgraph.nodes()) == expected[0]
-    assert len(pipe._execgraph.edges()) == expected[1]
+    flatgraph = pipe._create_flat_graph()
+    execgraph = pe.generate_expanded_graph(deepcopy(flatgraph))
+    assert len(execgraph.nodes()) == expected[0]
+    assert len(execgraph.edges()) == expected[1]
 
-    edgenum = sorted([(len(pipe._execgraph.in_edges(node)) +
-                       len(pipe._execgraph.out_edges(node)))
-                      for node in pipe._execgraph.nodes()])
+    edgenum = sorted([(len(execgraph.in_edges(node)) +
+                       len(execgraph.out_edges(node)))
+                      for node in execgraph.nodes()])
     assert edgenum[0] > 0
 
 
@@ -136,8 +136,7 @@ def test_expansion():
     pipe6 = pe.Workflow(name="pipe6")
     pipe6.connect([(pipe5, pipe3, [('pipe4.mod5.output1',
                                     'pipe2.mod3.input1')])])
-
-    pipe6._flatgraph = pipe6._create_flat_graph()
+    pipe6._create_flat_graph()
 
 
 def test_iterable_expansion():
@@ -149,8 +148,8 @@ def test_iterable_expansion():
     wf3 = pe.Workflow(name='group')
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
-    wf3._flatgraph = wf3._create_flat_graph()
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 12
+    flatgraph = wf3._create_flat_graph()
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 12
 
 
 def test_synchronize_expansion():
@@ -163,13 +162,13 @@ def test_synchronize_expansion():
     wf3 = pe.Workflow(name='group')
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
-    wf3._flatgraph = wf3._create_flat_graph()
+    flatgraph = wf3._create_flat_graph()
     # Each expanded graph clone has:
     # 3 node1 expansion nodes and
     # 1 node2 replicate per node1 replicate
     # => 2 * 3 = 6 nodes per expanded subgraph
     # => 18 nodes in the group
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 18
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 18
 
 
 def test_synchronize_tuples_expansion():
@@ -187,9 +186,9 @@ def test_synchronize_tuples_expansion():
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
 
-    wf3._flatgraph = wf3._create_flat_graph()
+    flatgraph = wf3._create_flat_graph()
     # Identical to test_synchronize_expansion
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 18
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 18
 
 
 def test_itersource_expansion():
@@ -214,7 +213,7 @@ def test_itersource_expansion():
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
 
-    wf3._flatgraph = wf3._create_flat_graph()
+    flatgraph = wf3._create_flat_graph()
 
     # each expanded graph clone has:
     # 2 node1 expansion nodes,
@@ -224,7 +223,7 @@ def test_itersource_expansion():
     # 1 node4 successor per node3 replicate
     # => 2 + 2 + (2 + 3) + 5 = 14 nodes per expanded graph clone
     # => 3 * 14 = 42 nodes in the group
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 42
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 42
 
 
 def test_itersource_synchronize1_expansion():
@@ -248,7 +247,7 @@ def test_itersource_synchronize1_expansion():
     wf3 = pe.Workflow(name='group')
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
-    wf3._flatgraph = wf3._create_flat_graph()
+    flatgraph = wf3._create_flat_graph()
 
     # each expanded graph clone has:
     # 2 node1 expansion nodes,
@@ -258,7 +257,7 @@ def test_itersource_synchronize1_expansion():
     # 1 node4 successor per node3 replicate
     # => 2 + 2 + (2 + 3) + 5 = 14 nodes per expanded graph clone
     # => 3 * 14 = 42 nodes in the group
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 42
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 42
 
 
 def test_itersource_synchronize2_expansion():
@@ -282,7 +281,7 @@ def test_itersource_synchronize2_expansion():
     wf3 = pe.Workflow(name='group')
     for i in [0, 1, 2]:
         wf3.add_nodes([wf1.clone(name='test%d' % i)])
-    wf3._flatgraph = wf3._create_flat_graph()
+    flatgraph = wf3._create_flat_graph()
 
     # each expanded graph clone has:
     # 2 node1 expansion nodes,
@@ -292,7 +291,7 @@ def test_itersource_synchronize2_expansion():
     # 1 node4 successor per node3 replicate
     # => 2 + 2 + (2 + 1) + 3 = 10 nodes per expanded graph clone
     # => 3 * 10 = 30 nodes in the group
-    assert len(pe.generate_expanded_graph(wf3._flatgraph).nodes()) == 30
+    assert len(pe.generate_expanded_graph(flatgraph).nodes()) == 30
 
 
 
@@ -318,10 +317,8 @@ def test_old_config(tmpdir):
     n1.inputs.a = 1
     w1.connect(n1, ('a', modify), n2, 'a')
     w1.base_dir = wd
-
-    w1.config['execution']['crashdump_dir'] = wd
+    w1.cfg.crashdump_dir = wd
     # generate outputs
-
     w1.run(plugin='Linear')
 
 
@@ -342,7 +339,7 @@ def test_mapnode_json(tmpdir):
     n1.inputs.in1 = [1]
     w1 = Workflow(name='test')
     w1.base_dir = wd
-    w1.config['execution']['crashdump_dir'] = wd
+    w1.cfg.crashdump_dir = wd
     w1.add_nodes([n1])
     w1.run()
     n1.inputs.in1 = [2]
@@ -358,8 +355,7 @@ def test_mapnode_json(tmpdir):
     # check that multiple json's don't trigger rerun
     with open(os.path.join(node.output_dir(), 'test.json'), 'wt') as fp:
         fp.write('dummy file')
-    w1.config['execution'].update(**{'stop_on_first_rerun': True})
-
+    w1.cfg.update({'stop_on_first_rerun': True})
     w1.run()
 
 
@@ -377,7 +373,7 @@ def test_parameterize_dirs_false(tmpdir):
 
     wf = pe.Workflow(name='Test')
     wf.base_dir = tmpdir.strpath
-    wf.config['execution']['parameterize_dirs'] = False
+    wf.cfg.parameterize_dirs = False
     wf.connect([(n1, n2, [('output1', 'in1')])])
 
     wf.run()
@@ -401,12 +397,12 @@ def test_serial_input(tmpdir):
     w1.base_dir = wd
     w1.add_nodes([n1])
     # set local check
-    w1.config['execution'] = {
+    w1.cfg.update({
         'stop_on_first_crash': 'true',
         'local_hash_check': 'true',
         'crashdump_dir': wd,
         'poll_sleep_duration': 2
-    }
+    })
 
     # test output of num_subnodes method when serial is default (False)
     assert n1.num_subnodes() == len(n1.inputs.in1)
@@ -441,7 +437,7 @@ def test_write_graph_runs(tmpdir):
 
             assert os.path.exists('graph.dot') or os.path.exists(
                 'graph_detailed.dot')
-       
+
             try:
                 os.remove('graph.dot')
             except OSError:

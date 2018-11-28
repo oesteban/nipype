@@ -121,7 +121,7 @@ def nodelist_runner(nodes, updatehash=False, stop_first=False):
 
 def write_report(node, report_type=None, is_mapnode=False):
     """Write a report file for a node"""
-    if not str2bool(node.config['execution']['create_report']):
+    if not str2bool(node.cfg.create_report):
         return
 
     if report_type not in ['preexec', 'postexec']:
@@ -453,7 +453,7 @@ def format_node(node, format='python', include_config=False):
                 "standard_library.install_aliases()",
                 "from collections import OrderedDict", comment, nodedef
             ]
-            lines.append('%s.config = %s' % (name, node.config))
+            lines.append('%s.config = %s' % (name, node.cfg.dictcopy()))
 
         if node.iterables is not None:
             lines.append('%s.iterables = %s' % (name, node.iterables))
