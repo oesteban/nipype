@@ -26,10 +26,11 @@ import subprocess as sp
 import shlex
 import sys
 from textwrap import wrap
+from distutils.version import LooseVersion
 import simplejson as json
 from dateutil.parser import parse as parseutc
 
-from ... import config, logging, LooseVersion
+from ... import config, logging
 from ...utils.provenance import write_provenance
 from ...utils.misc import trim, str2bool, rgetcwd
 from ...utils.filemanip import (FileNotFoundError, split_filename,
