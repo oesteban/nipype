@@ -15,10 +15,8 @@ def test_ApplyTransforms_inputs():
             nohash=True,
             usedefault=True,
         ),
-        float=dict(argstr='--float %d', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
+        float=dict(
+            argstr='--float %d',
             usedefault=True,
         ),
         input_image=dict(
@@ -46,10 +44,6 @@ def test_ApplyTransforms_inputs():
         reference_image=dict(
             argstr='--reference-image %s',
             mandatory=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
         transforms=dict(
             argstr='%s',

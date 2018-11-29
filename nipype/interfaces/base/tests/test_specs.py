@@ -11,6 +11,10 @@ import pytest
 from ....utils.filemanip import split_filename
 from ... import base as nib
 from ...base import traits, Undefined
+from ....interfaces import fsl
+from ...utility.wrappers import Function
+from ....pipeline import Node
+from ..specs import get_filecopy_info
 
 standard_library.install_aliases()
 
@@ -47,6 +51,20 @@ def test_TraitedSpec():
     assert infields.__repr__() == '\nfoo = 1\ngoo = 0.0\n'
 
 
+def test_TraitedSpec_tab_completion():
+    bet_nd = Node(fsl.BET(), name='bet')
+    bet_interface = fsl.BET()
+    bet_inputs = bet_nd.inputs.class_editable_traits()
+    bet_outputs = bet_nd.outputs.class_editable_traits()
+
+    # Check __all__ for bet node and interface inputs
+    assert set(bet_nd.inputs.__all__) == set(bet_inputs)
+    assert set(bet_interface.inputs.__all__) == set(bet_inputs)
+
+    # Check __all__ for bet node outputs
+    assert set(bet_nd.outputs.__all__) == set(bet_outputs)
+
+
 @pytest.mark.skip
 def test_TraitedSpec_dynamic():
     from pickle import dumps, loads
@@ -61,6 +79,36 @@ def test_TraitedSpec_dynamic():
     assign_a_again = lambda: setattr(unpkld_a, 'foo', 'a')
     with pytest.raises(Exception):
         assign_a_again
+
+
+def test_DynamicTraitedSpec_tab_completion():
+    def extract_func(list_out):
+        return list_out[0]
+
+    # Define interface
+    func_interface = Function(input_names=["list_out"],
+                              output_names=["out_file", "another_file"],
+                              function=extract_func)
+    # Define node
+    list_extract = Node(Function(
+        input_names=["list_out"], output_names=["out_file"],
+        function=extract_func), name="list_extract")
+
+    # Check __all__ for interface inputs
+    expected_input = set(list_extract.inputs.editable_traits())
+    assert(set(func_interface.inputs.__all__) == expected_input)
+
+    # Check __all__ for node inputs
+    assert(set(list_extract.inputs.__all__) == expected_input)
+
+    # Check __all__ for node outputs
+    expected_output = set(list_extract.outputs.editable_traits())
+    assert(set(list_extract.outputs.__all__) == expected_output)
+
+    # Add trait and retest
+    list_extract._interface._output_names.append('added_out_trait')
+    expected_output.add('added_out_trait')
+    assert(set(list_extract.outputs.__all__) == expected_output)
 
 
 def test_TraitedSpec_logic():
@@ -274,6 +322,55 @@ def test_cycle_namesource2(setup_file):
     assert '%s_generated_mootpl' % nme in res
 
 
+def test_namesource_constraints(setup_file):
+    tmp_infile = setup_file
+    tmpd, nme, ext = split_filename(tmp_infile)
+
+    class constrained_spec(nib.CommandLineInputSpec):
+        in_file = nib.File(argstr="%s", position=1)
+        threshold = traits.Float(
+            argstr="%g",
+            xor=['mask_file'],
+            position=2)
+        mask_file = nib.File(
+            argstr="%s",
+            name_source=['in_file'],
+            name_template='%s_mask',
+            keep_extension=True,
+            xor=['threshold'],
+            position=2)
+        out_file1 = nib.File(
+            argstr="%s",
+            name_source=['in_file'],
+            name_template='%s_out1',
+            keep_extension=True,
+            position=3)
+        out_file2 = nib.File(
+            argstr="%s",
+            name_source=['in_file'],
+            name_template='%s_out2',
+            keep_extension=True,
+            requires=['threshold'],
+            position=4)
+
+    class TestConstrained(nib.CommandLine):
+        _cmd = "mycommand"
+        input_spec = constrained_spec
+
+    tc = TestConstrained()
+
+    # name_source undefined, so template traits remain undefined
+    assert tc.cmdline == 'mycommand'
+
+    # mask_file and out_file1 enabled by name_source definition
+    tc.inputs.in_file = os.path.basename(tmp_infile)
+    assert tc.cmdline == 'mycommand foo.txt foo_mask.txt foo_out1.txt'
+
+    # mask_file disabled by threshold, out_file2 enabled by threshold
+    tc.inputs.threshold = 10.
+    assert tc.cmdline == 'mycommand foo.txt 10 foo_out1.txt foo_out2.txt'
+
+
 def test_TraitedSpec_withFile(setup_file):
     tmp_infile = setup_file
     tmpd, nme = os.path.split(tmp_infile)
@@ -336,3 +433,45 @@ def test_ImageFile():
     with pytest.raises(nib.TraitError):
         x.nocompress = 'test.nii.gz'
     x.nocompress = 'test.mgh'
+
+
+def test_filecopy_info():
+    class InputSpec(nib.TraitedSpec):
+        foo = nib.traits.Int(desc='a random int')
+        goo = nib.traits.Int(desc='a random int', mandatory=True)
+        moo = nib.traits.Int(desc='a random int', mandatory=False)
+        hoo = nib.traits.Int(desc='a random int', usedefault=True)
+        zoo = nib.File(desc='a file', copyfile=False)
+        woo = nib.File(desc='a file', copyfile=True)
+
+    class DerivedInterface(nib.BaseInterface):
+        input_spec = InputSpec
+        resource_monitor = False
+
+        def normalize_filenames(self):
+            """A mock normalize_filenames for freesurfer interfaces that have one"""
+            self.inputs.zoo = 'normalized_filename.ext'
+
+    assert get_filecopy_info(nib.BaseInterface) == []
+
+    # Test on interface class, not instantiated
+    info = get_filecopy_info(DerivedInterface)
+    assert info[0]['key'] == 'woo'
+    assert info[0]['copy']
+    assert info[1]['key'] == 'zoo'
+    assert not info[1]['copy']
+    info = None
+
+    # Test with instantiated interface
+    derived = DerivedInterface()
+    # First check that zoo is not defined
+    assert derived.inputs.zoo == Undefined
+    # After the first call to get_filecopy_info zoo is defined
+    info = get_filecopy_info(derived)
+    # Ensure that normalize_filenames was called
+    assert derived.inputs.zoo == 'normalized_filename.ext'
+    # Check the results are consistent
+    assert info[0]['key'] == 'woo'
+    assert info[0]['copy']
+    assert info[1]['key'] == 'zoo'
+    assert not info[1]['copy']

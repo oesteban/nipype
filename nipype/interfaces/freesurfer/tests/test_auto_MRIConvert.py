@@ -30,11 +30,6 @@ def test_MRIConvert_inputs():
         frame=dict(argstr='--frame %d', ),
         frame_subsample=dict(argstr='--fsubsample %d %d %d', ),
         fwhm=dict(argstr='--fwhm %f', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_center=dict(argstr='--in_center %s', ),
         in_file=dict(
             argstr='--input_volume %s',
@@ -99,12 +94,8 @@ def test_MRIConvert_inputs():
         subject_name=dict(argstr='--subject_name %s', ),
         subjects_dir=dict(),
         te=dict(argstr='-te %d', ),
-        template_info=dict(),
+        template_info=dict(argstr='--template_info', ),
         template_type=dict(argstr='--template_type %s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         ti=dict(argstr='-ti %d', ),
         tr=dict(argstr='-tr %d', ),
         unwarp_gradient=dict(argstr='--unwarp_gradient_nonlinearity', ),

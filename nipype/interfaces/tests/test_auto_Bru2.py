@@ -8,16 +8,12 @@ def test_Bru2_inputs():
         actual_size=dict(argstr='-a', ),
         append_protocol_name=dict(argstr='-p', ),
         args=dict(argstr='%s', ),
+        compress=dict(argstr='-z', ),
         environ=dict(
             nohash=True,
             usedefault=True,
         ),
         force_conversion=dict(argstr='-f', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         input_dir=dict(
             argstr='%s',
             mandatory=True,
@@ -26,10 +22,6 @@ def test_Bru2_inputs():
         output_filename=dict(
             argstr='-o %s',
             genfile=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
     )
     inputs = Bru2.input_spec()

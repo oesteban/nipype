@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-   >>> os.chdir(datadir)
-"""
-
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
 
@@ -15,7 +8,7 @@ from ... import logging
 from ..base import TraitedSpec, File, isdefined
 from .base import DipyDiffusionInterface, DipyBaseInterfaceInputSpec
 
-IFLOGGER = logging.getLogger('interface')
+IFLOGGER = logging.getLogger('nipype.interface')
 
 
 class APMQballInputSpec(DipyBaseInterfaceInputSpec):

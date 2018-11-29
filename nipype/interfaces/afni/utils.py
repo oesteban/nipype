@@ -6,11 +6,6 @@
 Examples
 --------
 See the docstrings of the individual classes for examples.
-  .. testsetup::
-    # Change directory to provide relative paths for doctests
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-    >>> os.chdir(datadir)
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -23,7 +18,8 @@ import numpy as np
 
 from ...utils.filemanip import (load_json, save_json, split_filename)
 from ..base import (CommandLineInputSpec, CommandLine, Directory, TraitedSpec,
-                    traits, isdefined, File, InputMultiPath, Undefined, Str)
+                    traits, isdefined, File, InputMultiObject, InputMultiPath,
+                    Undefined, Str)
 from ...external.due import BibTeX
 from .base import (AFNICommandBase, AFNICommand, AFNICommandInputSpec,
                    AFNICommandOutputSpec, AFNIPythonCommandInputSpec,
@@ -484,7 +480,8 @@ class CatInputSpec(AFNICommandInputSpec):
         File(exists=True), argstr="%s", mandatory=True, position=-2)
     out_file = File(
         argstr='> %s',
-        default='catout.1d',
+        value='catout.1d',
+        usedefault=True,
         desc='output (concatenated) file name',
         position=-1,
         mandatory=True)
@@ -569,8 +566,11 @@ class CatMatvecInputSpec(AFNICommandInputSpec):
         argstr="%s",
         position=-2)
     out_file = File(
-        desc="File to write concattenated matvecs to",
         argstr=" > %s",
+        name_template='%s_cat.aff12.1D',
+        name_source='in_file',
+        keep_extension=False,
+        desc="File to write concattenated matvecs to",
         position=-1,
         mandatory=True)
     matrix = traits.Bool(
@@ -1339,6 +1339,302 @@ class FWHMx(AFNICommandBase):
         return outputs
 
 
+class LocalBistatInputSpec(AFNICommandInputSpec):
+    in_file1 = File(
+        exists=True,
+        mandatory=True,
+        argstr='%s',
+        position=-2,
+        desc='Filename of the first image')
+    in_file2 = File(
+        exists=True,
+        mandatory=True,
+        argstr='%s',
+        position=-1,
+        desc='Filename of the second image')
+    neighborhood = traits.Either(
+        traits.Tuple(traits.Enum('SPHERE', 'RHDD', 'TOHD'), traits.Float()),
+        traits.Tuple(traits.Enum('RECT'), traits.Tuple(traits.Float(),
+                                                       traits.Float(),
+                                                       traits.Float())),
+        mandatory=True,
+        desc='The region around each voxel that will be extracted for '
+             'the statistics calculation. Possible regions are: '
+             '\'SPHERE\', \'RHDD\' (rhombic dodecahedron), \'TOHD\' '
+             '(truncated octahedron) with a given radius in mm or '
+             '\'RECT\' (rectangular block) with dimensions to specify in mm.',
+        argstr="-nbhd '%s(%s)'")
+    _stat_names = ['pearson', 'spearman', 'quadrant', 'mutinfo', 'normuti',
+                   'jointent', 'hellinger', 'crU', 'crM', 'crA', 'L2slope',
+                   'L1slope', 'num', 'ALL']
+    stat = InputMultiPath(
+        traits.Enum(_stat_names),
+        mandatory=True,
+        desc='statistics to compute. Possible names are :'
+             '  * pearson  = Pearson correlation coefficient'
+             '  * spearman = Spearman correlation coefficient'
+             '  * quadrant = Quadrant correlation coefficient'
+             '  * mutinfo  = Mutual Information'
+             '  * normuti  = Normalized Mutual Information'
+             '  * jointent = Joint entropy'
+             '  * hellinger= Hellinger metric'
+             '  * crU      = Correlation ratio (Unsymmetric)'
+             '  * crM      = Correlation ratio (symmetrized by Multiplication)'
+             '  * crA      = Correlation ratio (symmetrized by Addition)'
+             '  * L2slope  = slope of least-squares (L2) linear regression of '
+             '               the data from dataset1 vs. the dataset2 '
+             '               (i.e., d2 = a + b*d1 ==> this is \'b\')'
+             '  * L1slope  = slope of least-absolute-sum (L1) linear '
+             '               regression of the data from dataset1 vs. '
+             '               the dataset2'
+             '  * num      = number of the values in the region: '
+             '               with the use of -mask or -automask, '
+             '               the size of the region around any given '
+             '               voxel will vary; this option lets you '
+             '               map that size.'
+             '  * ALL      = all of the above, in that order'
+             'More than one option can be used.',
+        argstr='-stat %s...')
+    mask_file = traits.File(
+        exists=True,
+        desc='mask image file name. Voxels NOT in the mask will not be used '
+             'in the neighborhood of any voxel. Also, a voxel NOT in the mask '
+             'will have its statistic(s) computed as zero (0).',
+        argstr='-mask %s')
+    automask = traits.Bool(
+        desc='Compute the mask as in program 3dAutomask.',
+        argstr='-automask',
+        xor=['weight_file'])
+    weight_file = traits.File(
+        exists=True,
+        desc='File name of an image to use as a weight.  Only applies to '
+             '\'pearson\' statistics.',
+        argstr='-weight %s',
+        xor=['automask'])
+    out_file = traits.File(
+        desc='Output dataset.',
+        argstr='-prefix %s',
+        name_source='in_file1',
+        name_template='%s_bistat',
+        keep_extension=True,
+        position=0)
+
+
+class LocalBistat(AFNICommand):
+    """3dLocalBistat - computes statistics between 2 datasets, at each voxel,
+    based on a local neighborhood of that voxel.
+
+    For complete details, see the `3dLocalBistat Documentation.
+    <https://afni.nimh.nih.gov/pub../pub/dist/doc/program_help/3dLocalBistat.html>`_
+
+    Examples
+    ========
+
+    >>> from nipype.interfaces import afni
+    >>> bistat = afni.LocalBistat()
+    >>> bistat.inputs.in_file1 = 'functional.nii'
+    >>> bistat.inputs.in_file2 = 'structural.nii'
+    >>> bistat.inputs.neighborhood = ('SPHERE', 1.2)
+    >>> bistat.inputs.stat = 'pearson'
+    >>> bistat.inputs.outputtype = 'NIFTI'
+    >>> bistat.cmdline
+    "3dLocalBistat -prefix functional_bistat.nii -nbhd 'SPHERE(1.2)' -stat pearson functional.nii structural.nii"
+    >>> res = automask.run()  # doctest: +SKIP
+
+    """
+
+    _cmd = '3dLocalBistat'
+    input_spec = LocalBistatInputSpec
+    output_spec = AFNICommandOutputSpec
+
+    def _format_arg(self, name, spec, value):
+        if name == 'neighborhood' and value[0] == 'RECT':
+            value = ('RECT', '%s,%s,%s' % value[1])
+
+        return super(LocalBistat, self)._format_arg(name, spec, value)
+
+
+class LocalstatInputSpec(AFNICommandInputSpec):
+    in_file = File(
+        exists=True,
+        mandatory=True,
+        argstr='%s',
+        position=-1,
+        desc='input dataset')
+    neighborhood = traits.Either(
+        traits.Tuple(traits.Enum('SPHERE', 'RHDD', 'TOHD'), traits.Float()),
+        traits.Tuple(traits.Enum('RECT'), traits.Tuple(traits.Float(),
+                                                       traits.Float(),
+                                                       traits.Float())),
+        mandatory=True,
+        desc='The region around each voxel that will be extracted for '
+             'the statistics calculation. Possible regions are: '
+             '\'SPHERE\', \'RHDD\' (rhombic dodecahedron), \'TOHD\' '
+             '(truncated octahedron) with a given radius in mm or '
+             '\'RECT\' (rectangular block) with dimensions to specify in mm.',
+        argstr="-nbhd '%s(%s)'")
+    _stat_names = ['mean', 'stdev', 'var', 'cvar', 'median', 'MAD', 'min',
+                   'max', 'absmax', 'num', 'sum', 'FWHM', 'FWHMbar', 'rank',
+                   'frank', 'P2skew', 'ALL', 'mMP2s', 'mmMP2s']
+    stat = InputMultiObject(
+        traits.Either(
+        traits.Enum(_stat_names),
+        traits.Tuple(traits.Enum('perc'),
+                     traits.Tuple(traits.Float, traits.Float, traits.Float))),
+        mandatory=True,
+        desc='statistics to compute. Possible names are :\n'
+             ' * mean   = average of the values\n'
+             ' * stdev  = standard deviation\n'
+             ' * var    = variance (stdev*stdev)\n'
+             ' * cvar   = coefficient of variation = stdev/fabs(mean)\n'
+             ' * median = median of the values\n'
+             ' * MAD    = median absolute deviation\n'
+             ' * min    = minimum\n'
+             ' * max    = maximum\n'
+             ' * absmax = maximum of the absolute values\n'
+             ' * num    = number of the values in the region:\n'
+             '            with the use of -mask or -automask,'
+             '            the size of the region around any given'
+             '            voxel will vary; this option lets you'
+             '            map that size.  It may be useful if you'
+             '            plan to compute a t-statistic (say) from'
+             '            the mean and stdev outputs.\n'
+             ' * sum    = sum of the values in the region\n'
+             ' * FWHM   = compute (like 3dFWHM) image smoothness'
+             '            inside each voxel\'s neighborhood.  Results'
+             '            are in 3 sub-bricks: FWHMx, FHWMy, and FWHMz.'
+             '            Places where an output is -1 are locations'
+             '            where the FWHM value could not be computed'
+             '            (e.g., outside the mask).\n'
+             ' * FWHMbar= Compute just the average of the 3 FWHM values'
+             '            (normally would NOT do this with FWHM also).\n'
+             ' * perc:P0:P1:Pstep = \n'
+             '            Compute percentiles between P0 and P1 with a '
+             '            step of Pstep.\n'
+             '            Default P1 is equal to P0 and default P2 = 1\n'
+             ' * rank   = rank of the voxel\'s intensity\n'
+             ' * frank  = rank / number of voxels in neighborhood\n'
+             ' * P2skew = Pearson\'s second skewness coefficient'
+             '             3 * (mean - median) / stdev\n'
+             ' * ALL    = all of the above, in that order '
+             '            (except for FWHMbar and perc).\n'
+             ' * mMP2s  = Exactly the same output as:'
+             '            median, MAD, P2skew,'
+             '            but a little faster\n'
+             ' * mmMP2s = Exactly the same output as:'
+             '            mean, median, MAD, P2skew\n'
+             'More than one option can be used.',
+        argstr='-stat %s...')
+    mask_file = traits.File(
+        exists=True,
+        desc='Mask image file name. Voxels NOT in the mask will not be used '
+             'in the neighborhood of any voxel. Also, a voxel NOT in the '
+             'mask will have its statistic(s) computed as zero (0) unless '
+             'the parameter \'nonmask\' is set to true.',
+        argstr='-mask %s')
+    automask = traits.Bool(
+        desc='Compute the mask as in program 3dAutomask.',
+        argstr='-automask')
+    nonmask = traits.Bool(
+        desc='Voxels not in the mask WILL have their local statistics '
+             'computed from all voxels in their neighborhood that ARE in '
+             'the mask.\n'
+             ' * For instance, this option can be used to compute the '
+             '   average local white matter time series, even at non-WM '
+             '   voxels.',
+        argstr='-use_nonmask')
+    reduce_grid = traits.Either(
+        traits.Float,
+        traits.Tuple(traits.Float, traits.Float, traits.Float),
+        argstr='-reduce_grid %s',
+        xor=['reduce_restore_grid', 'reduce_max_vox'],
+        desc='Compute output on a grid that is reduced by the specified '
+             'factors. If a single value is passed, output is resampled '
+             'to the specified isotropic grid. Otherwise, the 3 inputs '
+             'describe the reduction in the X, Y, and Z directions. This '
+             'option speeds up computations at the expense of resolution. '
+             'It should only be used when the nbhd is quite large with '
+             'respect to the input\'s resolution, and the resultant stats '
+             'are expected to be smooth.')
+    reduce_restore_grid = traits.Either(
+        traits.Float,
+        traits.Tuple(traits.Float, traits.Float, traits.Float),
+        argstr='-reduce_restore_grid %s',
+        xor=['reduce_max_vox', 'reduce_grid'],
+        desc='Like reduce_grid, but also resample output back to input'
+             'grid.')
+    reduce_max_vox = traits.Float(
+        argstr='-reduce_max_vox %s',
+        xor=['reduce_restore_grid', 'reduce_grid'],
+        desc='Like reduce_restore_grid, but automatically set Rx Ry Rz so'
+             'that the computation grid is at a resolution of nbhd/MAX_VOX'
+             'voxels.')
+    grid_rmode = traits.Enum(
+        'NN',
+        'Li',
+        'Cu',
+        'Bk',
+        argstr='-grid_rmode %s',
+        requires=['reduce_restore_grid'],
+        desc='Interpolant to use when resampling the output with the'
+             'reduce_restore_grid option. The resampling method string '
+             'RESAM should come from the set {\'NN\', \'Li\', \'Cu\', '
+             '\'Bk\'}. These stand for \'Nearest Neighbor\', \'Linear\', '
+             '\'Cubic\', and \'Blocky\' interpolation, respectively.')
+    quiet = traits.Bool(
+        argstr='-quiet',
+        desc='Stop the highly informative progress reports.')
+    overwrite = traits.Bool(
+        desc='overwrite output file if it already exists',
+        argstr='-overwrite')
+    out_file = traits.File(
+        desc='Output dataset.',
+        argstr='-prefix %s',
+        name_source='in_file',
+        name_template='%s_localstat',
+        keep_extension=True,
+        position=0)
+
+
+class Localstat(AFNICommand):
+    """3dLocalstat - computes statistics at each voxel,
+    based on a local neighborhood of that voxel.
+
+    For complete details, see the `3dLocalstat Documentation.
+    <https://afni.nimh.nih.gov/pub/dist/doc/program_help/3dLocalstat.html>`_
+
+    Examples
+    ========
+
+    >>> from nipype.interfaces import afni
+    >>> localstat = afni.Localstat()
+    >>> localstat.inputs.in_file = 'functional.nii'
+    >>> localstat.inputs.mask_file = 'skeleton_mask.nii.gz'
+    >>> localstat.inputs.neighborhood = ('SPHERE', 45)
+    >>> localstat.inputs.stat = 'mean'
+    >>> localstat.inputs.nonmask = True
+    >>> localstat.inputs.outputtype = 'NIFTI_GZ'
+    >>> localstat.cmdline
+    "3dLocalstat -prefix functional_localstat.nii -mask skeleton_mask.nii.gz -nbhd 'SPHERE(45.0)' -use_nonmask -stat mean functional.nii"
+    >>> res = localstat.run()  # doctest: +SKIP
+
+    """
+    _cmd = '3dLocalstat'
+    input_spec = LocalstatInputSpec
+    output_spec = AFNICommandOutputSpec
+
+    def _format_arg(self, name, spec, value):
+        if name == 'neighborhood' and value[0] == 'RECT':
+            value = ('RECT', '%s,%s,%s' % value[1])
+        if name == 'stat':
+            value = ['perc:%s:%s:%s' % v[1] if len(v) == 2 else v for v in value]
+        if name == 'reduce_grid' or name == 'reduce_restore_grid':
+            if len(value) == 3:
+                value = '%s %s %s' % value
+
+        return super(Localstat, self)._format_arg(name, spec, value)
+
+
 class MaskToolInputSpec(AFNICommandInputSpec):
     in_file = File(
         desc='input file or files to 3dmask_tool',
@@ -1434,7 +1730,7 @@ class MergeInputSpec(AFNICommandInputSpec):
         name_template='%s_merge',
         desc='output image file name',
         argstr='-prefix %s',
-        name_source='in_file')
+        name_source='in_files')
     doall = traits.Bool(
         desc='apply options to all sub-bricks in dataset', argstr='-doall')
     blurfwhm = traits.Int(
@@ -1516,6 +1812,81 @@ class Notes(CommandLine):
         return outputs
 
 
+class NwarpAdjustInputSpec(AFNICommandInputSpec):
+    warps = InputMultiPath(
+        File(exists=True),
+        minlen=5,
+        mandatory=True,
+        argstr='-nwarp %s',
+        desc='List of input 3D warp datasets')
+    in_files = InputMultiPath(
+        File(exists=True),
+        minlen=5,
+        argstr='-source %s',
+        desc='List of input 3D datasets to be warped by the adjusted warp '
+             'datasets.  There must be exactly as many of these datasets as '
+             'there are input warps.')
+    out_file = File(
+        desc='Output mean dataset, only needed if in_files are also given. '
+             'The output dataset will be on the common grid shared by the '
+             'source datasets.',
+        argstr='-prefix %s',
+        name_source='in_files',
+        name_template='%s_NwarpAdjust',
+        keep_extension=True,
+        requires=['in_files'])
+
+
+class NwarpAdjust(AFNICommandBase):
+    """This program takes as input a bunch of 3D warps, averages them,
+    and computes the inverse of this average warp.  It then composes
+    each input warp with this inverse average to 'adjust' the set of
+    warps.  Optionally, it can also read in a set of 1-brick datasets
+    corresponding to the input warps, and warp each of them, and average
+    those.
+
+    For complete details, see the `3dNwarpAdjust Documentation.
+    <https://afni.nimh.nih.gov/pub/dist/doc/program_help/3dNwarpAdjust.html>`_
+
+    Examples
+    ========
+
+    >>> from nipype.interfaces import afni
+    >>> adjust = afni.NwarpAdjust()
+    >>> adjust.inputs.warps = ['func2anat_InverseWarp.nii.gz', 'func2anat_InverseWarp.nii.gz', 'func2anat_InverseWarp.nii.gz', 'func2anat_InverseWarp.nii.gz', 'func2anat_InverseWarp.nii.gz']
+    >>> adjust.cmdline
+    '3dNwarpAdjust -nwarp func2anat_InverseWarp.nii.gz func2anat_InverseWarp.nii.gz func2anat_InverseWarp.nii.gz func2anat_InverseWarp.nii.gz func2anat_InverseWarp.nii.gz'
+    >>> res = adjust.run()  # doctest: +SKIP
+
+    """
+    _cmd = '3dNwarpAdjust'
+    input_spec = NwarpAdjustInputSpec
+    output_spec = AFNICommandOutputSpec
+
+    def _parse_inputs(self, skip=None):
+        if not self.inputs.in_files:
+            if skip is None:
+                skip = []
+            skip += ['out_file']
+        return super(NwarpAdjust, self)._parse_inputs(skip=skip)
+
+    def _list_outputs(self):
+        outputs = self.output_spec().get()
+
+        if self.inputs.in_files:
+            if self.inputs.out_file:
+                outputs['out_file'] = os.path.abspath(self.inputs.out_file)
+            else:
+                basename = os.path.basename(self.inputs.in_files[0])
+                basename_noext, ext = op.splitext(basename)
+                if '.gz' in ext:
+                    basename_noext, ext2 = op.splitext(basename_noext)
+                    ext = ext2 + ext
+                outputs['out_file'] = os.path.abspath(
+                    basename_noext + '_NwarpAdjust' + ext)
+        return outputs
+
+
 class NwarpApplyInputSpec(CommandLineInputSpec):
     in_file = traits.Either(
         File(exists=True),
@@ -1537,6 +1908,7 @@ class NwarpApplyInputSpec(CommandLineInputSpec):
         desc='the name of the master dataset, which defines the output grid',
         argstr='-master %s')
     interp = traits.Enum(
+        'wsinc5',
         'NN',
         'nearestneighbour',
         'nearestneighbor',
@@ -1546,10 +1918,9 @@ class NwarpApplyInputSpec(CommandLineInputSpec):
         'tricubic',
         'quintic',
         'triquintic',
-        'wsinc5',
         desc='defines interpolation method to use during warp',
         argstr='-interp %s',
-        default='wsinc5')
+        usedefault=True)
     ainterp = traits.Enum(
         'NN',
         'nearestneighbour',
@@ -1563,8 +1934,7 @@ class NwarpApplyInputSpec(CommandLineInputSpec):
         'wsinc5',
         desc='specify a different interpolation method than might '
         'be used for the warp',
-        argstr='-ainterp %s',
-        default='wsinc5')
+        argstr='-ainterp %s')
     out_file = File(
         name_template='%s_Nwarp',
         desc='output image file name',
@@ -1597,7 +1967,7 @@ class NwarpApply(AFNICommandBase):
     >>> nwarp.inputs.master = 'NWARP'
     >>> nwarp.inputs.warp = "'Fred_WARP+tlrc Fred.Xaff12.1D'"
     >>> nwarp.cmdline
-    "3dNwarpApply -source Fred+orig -master NWARP -prefix Fred+orig_Nwarp -nwarp \'Fred_WARP+tlrc Fred.Xaff12.1D\'"
+    "3dNwarpApply -source Fred+orig -interp wsinc5 -master NWARP -prefix Fred+orig_Nwarp -nwarp \'Fred_WARP+tlrc Fred.Xaff12.1D\'"
     >>> res = nwarp.run()  # doctest: +SKIP
 
     """
@@ -1623,13 +1993,13 @@ class NwarpCatInputSpec(AFNICommandInputSpec):
     inv_warp = traits.Bool(
         desc='invert the final warp before output', argstr='-iwarp')
     interp = traits.Enum(
+        'wsinc5',
         'linear',
         'quintic',
-        'wsinc5',
         desc='specify a different interpolation method than might '
         'be used for the warp',
         argstr='-interp %s',
-        default='wsinc5')
+        usedefault=True)
     expad = traits.Int(
         desc='Pad the nonlinear warps by the given number of voxels voxels in '
         'all directions. The warp displacements are extended by linear '
@@ -1691,7 +2061,7 @@ class NwarpCat(AFNICommand):
     >>> nwarpcat.inputs.in_files = ['Q25_warp+tlrc.HEAD', ('IDENT', 'structural.nii')]
     >>> nwarpcat.inputs.out_file = 'Fred_total_WARP'
     >>> nwarpcat.cmdline
-    "3dNwarpCat -prefix Fred_total_WARP Q25_warp+tlrc.HEAD 'IDENT(structural.nii)'"
+    "3dNwarpCat -interp wsinc5 -prefix Fred_total_WARP Q25_warp+tlrc.HEAD 'IDENT(structural.nii)'"
     >>> res = nwarpcat.run()  # doctest: +SKIP
 
     """
@@ -1768,8 +2138,6 @@ class OneDToolPyInputSpec(AFNIPythonCommandInputSpec):
     show_cormat_warnings = traits.File(
         desc='Write cormat warnings to a file',
         argstr="-show_cormat_warnings |& tee %s",
-        default="out.cormat_warn.txt",
-        usedefault=False,
         position=-1,
         xor=['out_file'])
     show_indices_interest = traits.Bool(
@@ -1815,7 +2183,8 @@ class OneDToolPy(AFNIPythonCommand):
                 os.getcwd(), self.inputs.show_cormat_warnings)
         if isdefined(self.inputs.censor_motion):
             outputs['out_file'] = os.path.join(os.getcwd(),
-                                               self.inputs.censor_motion[1])
+                                               self.inputs.censor_motion[1] +
+                                               '_censor.1D')
         return outputs
 
 
@@ -1930,6 +2299,126 @@ class Refit(AFNICommandBase):
         outputs = self.output_spec().get()
         outputs['out_file'] = os.path.abspath(self.inputs.in_file)
         return outputs
+
+
+class ReHoInputSpec(CommandLineInputSpec):
+    in_file = File(
+        desc='input dataset',
+        argstr='-inset %s',
+        position=1,
+        mandatory=True,
+        exists=True)
+    out_file = traits.File(
+        desc='Output dataset.',
+        argstr='-prefix %s',
+        name_source='in_file',
+        name_template='%s_reho',
+        keep_extension=True,
+        position=0)
+    chi_sq = traits.Bool(
+        argstr='-chi_sq',
+        desc='Output the Friedman chi-squared value in addition to the '
+             'Kendall\'s W. This option is currently compatible only with '
+             'the AFNI (BRIK/HEAD) output type; the chi-squared value will '
+             'be the second sub-brick of the output dataset.')
+    mask_file = traits.File(
+        desc='Mask within which ReHo should be calculated voxelwise',
+        argstr='-mask %s')
+    neighborhood = traits.Enum(
+        'faces',
+        'edges',
+        'vertices',
+        xor=['sphere', 'ellipsoid'],
+        argstr='-nneigh %s',
+        desc='voxels in neighborhood. can be: '
+        '* faces      (for voxel and 6 facewise neighbors, only),\n'
+        '* edges      (for voxel and 18 face- and edge-wise neighbors),\n'
+        '* vertices   (for voxel and 26 face-, edge-, and node-wise '
+        'neighbors).\n')
+    sphere = traits.Float(
+        argstr='-neigh_RAD %s',
+        xor=['neighborhood', 'ellipsoid'],
+        desc='for additional voxelwise neighborhood control, the '
+             'radius R of a desired neighborhood can be put in; R is '
+             'a floating point number, and must be >1. Examples of '
+             'the numbers of voxels in a given radius are as follows '
+             '(you can roughly approximate with the ol\' 4*PI*(R^3)/3 '
+             'thing):\n'
+             '        R=2.0 -> V=33,\n'
+             '        R=2.3 -> V=57, \n'
+             '        R=2.9 -> V=93, \n'
+             '        R=3.1 -> V=123, \n'
+             '        R=3.9 -> V=251, \n'
+             '        R=4.5 -> V=389, \n'
+             '        R=6.1 -> V=949, \n'
+             'but you can choose most any value.')
+    ellipsoid = traits.Tuple(
+        traits.Float,
+        traits.Float,
+        traits.Float,
+        xor=['sphere', 'neighborhood'],
+        argstr='-neigh_X %s -neigh_Y %s -neigh_Z %s',
+        desc='Tuple indicating the x, y, and z radius of an ellipsoid '
+             'defining the neighbourhood of each voxel.\n'
+             'The \'hood is then made according to the following relation:'
+             '(i/A)^2 + (j/B)^2 + (k/C)^2 <=1.\n'
+             'which will have approx. V=4*PI*A*B*C/3. The impetus for '
+             'this freedom was for use with data having anisotropic '
+             'voxel edge lengths.')
+    label_set = File(
+        exists=True,
+        argstr='-in_rois %s',
+        desc='a set of ROIs, each labelled with distinct '
+             'integers. ReHo will then be calculated per ROI.')
+    overwrite = traits.Bool(
+        desc='overwrite output file if it already exists',
+        argstr='-overwrite')
+
+
+class ReHoOutputSpec(TraitedSpec):
+    out_file = File(exists=True, desc='Voxelwise regional homogeneity map')
+    out_vals = File(desc='Table of labelwise regional homogenity values')
+
+
+class ReHo(AFNICommandBase):
+    """Compute regional homogenity for a given neighbourhood.l,
+    based on a local neighborhood of that voxel.
+
+    For complete details, see the `3dReHo Documentation.
+    <https://afni.nimh.nih.gov/pub/dist/doc/program_help/3dReHo.html>`_
+
+    Examples
+    ========
+
+    >>> from nipype.interfaces import afni
+    >>> reho = afni.ReHo()
+    >>> reho.inputs.in_file = 'functional.nii'
+    >>> reho.inputs.out_file = 'reho.nii.gz'
+    >>> reho.inputs.neighborhood = 'vertices'
+    >>> reho.cmdline
+    '3dReHo -prefix reho.nii.gz -inset functional.nii -nneigh 27'
+    >>> res = reho.run()  # doctest: +SKIP
+
+    """
+    _cmd = '3dReHo'
+    input_spec = ReHoInputSpec
+    output_spec = ReHoOutputSpec
+
+    def _list_outputs(self):
+        outputs = super(ReHo, self)._list_outputs()
+        if self.inputs.label_set:
+            outputs['out_vals'] = outputs['out_file'] + '_ROI_reho.vals'
+        return outputs
+
+    def _format_arg(self, name, spec, value):
+        _neigh_dict = {
+            'faces': 7,
+            'edges': 19,
+            'vertices': 27,
+            }
+        if name == 'neighborhood':
+            value = _neigh_dict[value]
+        return super(ReHo, self)._format_arg(name, spec, value)
 
 
 class ResampleInputSpec(AFNICommandInputSpec):
@@ -2635,9 +3124,10 @@ class ZcatInputSpec(AFNICommandInputSpec):
         mandatory=True,
         copyfile=False)
     out_file = File(
-        name_template='zcat',
+        name_template='%s_zcat',
         desc='output dataset prefix name (default \'zcat\')',
-        argstr='-prefix %s')
+        argstr='-prefix %s',
+        name_source='in_files')
     datum = traits.Enum(
         'byte',
         'short',

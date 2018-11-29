@@ -32,30 +32,30 @@ def test_KellyKapowski_inputs():
         gray_matter_label=dict(usedefault=True, ),
         gray_matter_prob_image=dict(
             argstr='--gray-matter-probability-image "%s"', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         max_invert_displacement_field_iters=dict(
             argstr=
-            '--maximum-number-of-invert-displacement-field-iterations %d', ),
+            '--maximum-number-of-invert-displacement-field-iterations %d',
+            usedefault=True,
+        ),
         num_threads=dict(
             nohash=True,
             usedefault=True,
         ),
         number_integration_points=dict(
-            argstr='--number-of-integration-points %d', ),
+            argstr='--number-of-integration-points %d',
+            usedefault=True,
+        ),
         segmentation_image=dict(
             argstr='--segmentation-image "%s"',
             mandatory=True,
         ),
-        smoothing_variance=dict(argstr='--smoothing-variance %f', ),
+        smoothing_variance=dict(
+            argstr='--smoothing-variance %f',
+            usedefault=True,
+        ),
         smoothing_velocity_field=dict(
-            argstr='--smoothing-velocity-field-parameter %f', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
+            argstr='--smoothing-velocity-field-parameter %f',
+            usedefault=True,
         ),
         thickness_prior_estimate=dict(
             argstr='--thickness-prior-estimate %f',

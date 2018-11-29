@@ -15,15 +15,11 @@ def test_RegTools_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='-in %s',
             mandatory=True,
         ),
+        inter_val=dict(argstr='-interp %d', ),
         iso_flag=dict(argstr='-iso', ),
         mask_file=dict(argstr='-nan %s', ),
         mul_val=dict(argstr='-mul %s', ),
@@ -41,10 +37,6 @@ def test_RegTools_inputs():
         smo_g_val=dict(argstr='-smoG %f %f %f', ),
         smo_s_val=dict(argstr='-smoS %f %f %f', ),
         sub_val=dict(argstr='-sub %s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         thr_val=dict(argstr='-thr %f', ),
     )
     inputs = RegTools.input_spec()

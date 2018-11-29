@@ -15,17 +15,13 @@ def test_Volreg_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='%s',
             copyfile=False,
             mandatory=True,
             position=-1,
         ),
+        in_weight_volume=dict(argstr="-weight '%s[%d]'", ),
         interp=dict(argstr='-%s', ),
         md1d_file=dict(
             argstr='-maxdisp1D %s',
@@ -56,10 +52,6 @@ def test_Volreg_inputs():
             name_template='%s_volreg',
         ),
         outputtype=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         timeshift=dict(argstr='-tshift 0', ),
         verbose=dict(argstr='-verbose', ),
         zpad=dict(

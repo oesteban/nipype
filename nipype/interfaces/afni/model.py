@@ -6,11 +6,6 @@
 Examples
 --------
 See the docstrings of the individual classes for examples.
-  .. testsetup::
-    # Change directory to provide relative paths for doctests
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-    >>> os.chdir(datadir)
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -142,7 +137,7 @@ class DeconvolveInputSpec(AFNICommandInputSpec):
         desc='this option lets you input a rectangular array of 1 or more '
         'baseline vectors from a file. This method is a fast way to '
         'include a lot of baseline regressors in one step. ',
-        argstr='ortvec %s')
+        argstr='-ortvec %s %s')
     x1D = File(desc='specify name for saved X matrix', argstr='-x1D %s')
     x1D_stop = traits.Bool(
         desc='stop running after writing .xmat.1D file', argstr='-x1D_stop')
@@ -153,9 +148,10 @@ class DeconvolveInputSpec(AFNICommandInputSpec):
         'instead of the bucket dataset, if possible.',
         argstr='-cbucket %s')
     out_file = File(desc='output statistics file', argstr='-bucket %s')
-    jobs = traits.Int(
+    num_threads = traits.Int(
         desc='run the program with provided number of sub-processes',
-        argstr='-jobs %d')
+        argstr='-jobs %d',
+        nohash=True)
     fout = traits.Bool(
         desc='output F-statistic for each stimulus', argstr='-fout')
     rout = traits.Bool(
@@ -165,6 +161,10 @@ class DeconvolveInputSpec(AFNICommandInputSpec):
     vout = traits.Bool(
         desc='output the sample variance (MSE) for each stimulus',
         argstr='-vout')
+    nofdr = traits.Bool(
+        desc="Don't compute the statistic-vs-FDR curves for the bucket "
+             "dataset.",
+        argstr='-noFDR')
     global_times = traits.Bool(
         desc='use global timing for stimulus timing files',
         argstr='-global_times',

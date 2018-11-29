@@ -7,12 +7,8 @@ def test_SSHDataGrabber_inputs():
     input_map = dict(
         base_directory=dict(mandatory=True, ),
         download_files=dict(usedefault=True, ),
+        drop_blank_outputs=dict(usedefault=True, ),
         hostname=dict(mandatory=True, ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         password=dict(),
         raise_on_empty=dict(usedefault=True, ),
         sort_filelist=dict(mandatory=True, ),

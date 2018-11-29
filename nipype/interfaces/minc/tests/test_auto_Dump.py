@@ -26,20 +26,12 @@ def test_Dump_inputs():
             argstr='-h',
             xor=('coordinate_data', 'header_data'),
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         input_file=dict(
             argstr='%s',
             mandatory=True,
             position=-2,
         ),
-        line_length=dict(
-            argstr='-l %d',
-            usedefault=False,
-        ),
+        line_length=dict(argstr='-l %d', ),
         netcdf_name=dict(argstr='-n %s', ),
         out_file=dict(
             argstr='> %s',
@@ -54,10 +46,6 @@ def test_Dump_inputs():
             position=-1,
         ),
         precision=dict(argstr='%s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         variables=dict(
             argstr='-v %s',
             sep=',',

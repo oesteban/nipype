@@ -86,11 +86,6 @@ def test_Average_inputs():
                  'format_int', 'format_long', 'format_float', 'format_double',
                  'format_signed', 'format_unsigned'),
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         input_files=dict(
             argstr='%s',
             mandatory=True,
@@ -98,7 +93,10 @@ def test_Average_inputs():
             sep=' ',
             xor=('input_files', 'filelist'),
         ),
-        max_buffer_size_in_kb=dict(argstr='-max_buffer_size_in_kb %d', ),
+        max_buffer_size_in_kb=dict(
+            argstr='-max_buffer_size_in_kb %d',
+            usedefault=True,
+        ),
         no_check_dimensions=dict(
             argstr='-nocheck_dimensions',
             xor=('check_dimensions', 'no_check_dimensions'),
@@ -128,10 +126,6 @@ def test_Average_inputs():
             xor=('verbose', 'quiet'),
         ),
         sdfile=dict(argstr='-sdfile %s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         two=dict(argstr='-2', ),
         verbose=dict(
             argstr='-verbose',

@@ -5,7 +5,10 @@ from ..petpvc import PETPVC
 
 def test_PETPVC_inputs():
     input_map = dict(
-        alpha=dict(argstr='-a %.4f', ),
+        alpha=dict(
+            argstr='-a %.4f',
+            usedefault=True,
+        ),
         args=dict(argstr='%s', ),
         debug=dict(
             argstr='-d',
@@ -27,11 +30,6 @@ def test_PETPVC_inputs():
             argstr='-z %.4f',
             mandatory=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='-i %s',
             mandatory=True,
@@ -40,8 +38,14 @@ def test_PETPVC_inputs():
             argstr='-m %s',
             mandatory=True,
         ),
-        n_deconv=dict(argstr='-k %d', ),
-        n_iter=dict(argstr='-n %d', ),
+        n_deconv=dict(
+            argstr='-k %d',
+            usedefault=True,
+        ),
+        n_iter=dict(
+            argstr='-n %d',
+            usedefault=True,
+        ),
         out_file=dict(
             argstr='-o %s',
             genfile=True,
@@ -51,10 +55,9 @@ def test_PETPVC_inputs():
             argstr='-p %s',
             mandatory=True,
         ),
-        stop_crit=dict(argstr='-a %.4f', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
+        stop_crit=dict(
+            argstr='-a %.4f',
+            usedefault=True,
         ),
     )
     inputs = PETPVC.input_spec()

@@ -5,13 +5,6 @@
 <http://niftyreg.sourceforge.net>`_ utility command line tools.
 
 The interfaces were written to work with niftyreg version 1.5.10
-
-Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/\
-data'))
-    >>> os.chdir(datadir)
 """
 
 from __future__ import (print_function, division, unicode_literals,
@@ -122,7 +115,7 @@ warpfield.nii -res im2_res.nii.gz'
     # Need this overload to properly constraint the interpolation type input
     def _format_arg(self, name, spec, value):
         if name == 'inter_val':
-            inter_val = {'NN': 0, 'LIN': 1, 'CUB': 3, 'SINC': 5}
+            inter_val = {'NN': 0, 'LIN': 1, 'CUB': 3, 'SINC': 4}
             return spec.argstr % inter_val[value]
         else:
             return super(RegResample, self)._format_arg(name, spec, value)
@@ -295,6 +288,15 @@ class RegToolsInputSpec(NiftyRegCommandInputSpec):
         desc=desc,
         argstr='-smoG %f %f %f')
 
+    # Interpolation type
+    inter_val = traits.Enum(
+        'NN',
+        'LIN',
+        'CUB',
+        'SINC',
+        desc='Interpolation order to use to warp the floating image',
+        argstr='-interp %d')
+
 
 class RegToolsOutputSpec(TraitedSpec):
     """ Output Spec for RegTools. """
@@ -325,6 +327,14 @@ class RegTools(NiftyRegCommand):
     input_spec = RegToolsInputSpec
     output_spec = RegToolsOutputSpec
     _suffix = '_tools'
+
+    # Need this overload to properly constraint the interpolation type input
+    def _format_arg(self, name, spec, value):
+        if name == 'inter_val':
+            inter_val = {'NN': 0, 'LIN': 1, 'CUB': 3, 'SINC': 4}
+            return spec.argstr % inter_val[value]
+        else:
+            return super(RegTools, self)._format_arg(name, spec, value)
 
 
 class RegAverageInputSpec(NiftyRegCommandInputSpec):
@@ -440,13 +450,6 @@ class RegAverage(NiftyRegCommand):
     Examples
     --------
 
-    .. testsetup::
-
-    >>> tmp = getfixture('tmpdir')
-    >>> old = tmp.chdir() # changing to temporary file
-
-    .. doctest::
-
     >>> from nipype.interfaces import niftyreg
     >>> node = niftyreg.RegAverage()
     >>> one_file = 'im1.nii'
@@ -455,11 +458,6 @@ class RegAverage(NiftyRegCommand):
     >>> node.inputs.avg_files = [one_file, two_file, three_file]
     >>> node.cmdline  # doctest: +ELLIPSIS
     'reg_average --cmd_file .../reg_average_cmd'
-
-    .. testsetup::
-
-    >>> os.chdir(old.strpath)
-
     """
     _cmd = get_custom_path('reg_average')
     input_spec = RegAverageInputSpec

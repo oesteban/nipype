@@ -10,11 +10,6 @@ def test_ImageMaths_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='%s',
             mandatory=True,
@@ -24,26 +19,23 @@ def test_ImageMaths_inputs():
             argstr='%s',
             position=3,
         ),
+        mask_file=dict(argstr='-mas %s', ),
         op_string=dict(
             argstr='%s',
             position=2,
         ),
         out_data_type=dict(
             argstr='-odt %s',
-            position=5,
+            position=-1,
         ),
         out_file=dict(
             argstr='%s',
             genfile=True,
             hash_files=False,
-            position=4,
+            position=-2,
         ),
         output_type=dict(),
         suffix=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
     )
     inputs = ImageMaths.input_spec()
 

@@ -14,11 +14,6 @@ def test_LaplacianThickness_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         input_gm=dict(
             argstr='%s',
             copyfile=True,
@@ -41,8 +36,10 @@ def test_LaplacianThickness_inputs():
         ),
         output_image=dict(
             argstr='%s',
-            genfile=True,
             hash_files=False,
+            keep_extension=True,
+            name_source=['input_wm'],
+            name_template='%s_thickness',
             position=3,
         ),
         prior_thickness=dict(
@@ -56,10 +53,6 @@ def test_LaplacianThickness_inputs():
         sulcus_prior=dict(
             argstr='use-sulcus-prior',
             position=7,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
     )
     inputs = LaplacianThickness.input_spec()

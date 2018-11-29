@@ -4,14 +4,6 @@
 """Defines functionality for pipelined execution of interfaces
 
 The `Node` class provides core functionality for batch processing.
-
-  .. testsetup::
-     # Change directory to provide relative paths for doctests
-     import os
-     filepath = os.path.dirname(os.path.realpath( __file__ ))
-     datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-     os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -32,14 +24,16 @@ from future import standard_library
 
 from ... import config, logging
 from ...utils.misc import flatten, unflatten, str2bool, dict_diff
-from ...utils.filemanip import (md5, FileNotFoundError, filename_to_list,
-                                list_to_filename, copyfiles, fnames_presuffix,
+from ...utils.filemanip import (md5, FileNotFoundError, ensure_list,
+                                simplify_list, copyfiles, fnames_presuffix,
                                 loadpkl, split_filename, load_json, makedirs,
-                                emptydirs, savepkl, to_str)
+                                emptydirs, savepkl, to_str, indirectory)
 
 from ...interfaces.base import (traits, InputMultiPath, CommandLine, Undefined,
                                 DynamicTraitedSpec, Bunch, InterfaceResult,
                                 Interface, isdefined)
+from ...interfaces.base.specs import get_filecopy_info
+
 from .utils import (
     _parameterization_dir, save_hashfile as _save_hashfile, load_resultfile as
     _load_resultfile, save_resultfile as _save_resultfile, nodelist_runner as
@@ -49,7 +43,7 @@ from .base import EngineBase
 
 standard_library.install_aliases()
 
-logger = logging.getLogger('workflow')
+logger = logging.getLogger('nipype.workflow')
 
 
 class Node(EngineBase):
@@ -167,7 +161,6 @@ class Node(EngineBase):
         self._got_inputs = False
         self._originputs = None
         self._output_dir = None
-        self._id = self.name  # for compatibility with node expansion using iterables
 
         self.iterables = iterables
         self.synchronize = synchronize
@@ -191,6 +184,7 @@ class Node(EngineBase):
         self._hashed_inputs = None
         self._needed_outputs = []
         self.needed_outputs = needed_outputs
+        self.config = None
 
     @property
     def interface(self):
@@ -256,14 +250,6 @@ class Node(EngineBase):
         if hasattr(self._interface.inputs, 'num_threads'):
             self._interface.inputs.num_threads = self._n_procs
 
-    @property
-    def itername(self):
-        """Name for expanded iterable"""
-        itername = self._id
-        if self._hierarchy:
-            itername = '%s.%s' % (self._hierarchy, self._id)
-        return itername
-
     def output_dir(self):
         """Return the location of the output directory for the node"""
         # Output dir is cached
@@ -282,7 +268,7 @@ class Node(EngineBase):
                 params_str = [_parameterization_dir(p) for p in params_str]
             outputdir = op.join(outputdir, *params_str)
 
-        self._output_dir = op.abspath(op.join(outputdir, self.name))
+        self._output_dir = op.realpath(op.join(outputdir, self.name))
         return self._output_dir
 
     def set_input(self, parameter, val):
@@ -539,8 +525,8 @@ class Node(EngineBase):
             else:
                 output_name = info[1]
                 try:
-                    output_value = results.outputs.get()[output_name]
-                except TypeError:
+                    output_value = results.outputs.trait_get()[output_name]
+                except AttributeError:
                     output_value = results.outputs.dictcopy()[output_name]
             logger.debug('output: %s', output_name)
             try:
@@ -635,7 +621,8 @@ class Node(EngineBase):
             self._interface.__class__.__name__)
         if issubclass(self._interface.__class__, CommandLine):
             try:
-                cmd = self._interface.cmdline
+                with indirectory(outdir):
+                    cmd = self._interface.cmdline
             except Exception as msg:
                 result.runtime.stderr = '{}\n\n{}'.format(
                     getattr(result.runtime, 'stderr', ''), msg)
@@ -671,7 +658,8 @@ class Node(EngineBase):
 
     def _copyfiles_to_wd(self, execute=True, linksonly=False):
         """copy files over and change the inputs"""
-        if not hasattr(self._interface, '_get_filecopy_info'):
+        filecopy_info = get_filecopy_info(self.interface)
+        if not filecopy_info:
             # Nothing to be done
             return
 
@@ -684,12 +672,12 @@ class Node(EngineBase):
             outdir = op.join(outdir, '_tempinput')
             makedirs(outdir, exist_ok=True)
 
-        for info in self._interface._get_filecopy_info():
-            files = self.inputs.get().get(info['key'])
+        for info in filecopy_info:
+            files = self.inputs.trait_get().get(info['key'])
             if not isdefined(files) or not files:
                 continue
 
-            infiles = filename_to_list(files)
+            infiles = ensure_list(files)
             if execute:
                 if linksonly:
                     if not info['copy']:
@@ -708,7 +696,7 @@ class Node(EngineBase):
             else:
                 newfiles = fnames_presuffix(infiles, newpath=outdir)
             if not isinstance(files, list):
-                newfiles = list_to_filename(newfiles)
+                newfiles = simplify_list(newfiles)
             setattr(self.inputs, info['key'], newfiles)
         if execute and linksonly:
             emptydirs(outdir, noexist_ok=True)
@@ -1091,7 +1079,7 @@ class MapNode(Node):
     @property
     def outputs(self):
         if self._interface._outputs():
-            return Bunch(self._interface._outputs().get())
+            return Bunch(self._interface._outputs().trait_get())
 
     def _make_nodes(self, cwd=None):
         if cwd is None:
@@ -1099,10 +1087,10 @@ class MapNode(Node):
         if self.nested:
             nitems = len(
                 flatten(
-                    filename_to_list(getattr(self.inputs, self.iterfield[0]))))
+                    ensure_list(getattr(self.inputs, self.iterfield[0]))))
         else:
             nitems = len(
-                filename_to_list(getattr(self.inputs, self.iterfield[0])))
+                ensure_list(getattr(self.inputs, self.iterfield[0])))
         for i in range(nitems):
             nodename = '_%s%d' % (self.name, i)
             node = Node(
@@ -1116,14 +1104,14 @@ class MapNode(Node):
                 name=nodename)
             node.plugin_args = self.plugin_args
             node.interface.inputs.trait_set(
-                **deepcopy(self._interface.inputs.get()))
+                **deepcopy(self._interface.inputs.trait_get()))
             node.interface.resource_monitor = self._interface.resource_monitor
             for field in self.iterfield:
                 if self.nested:
                     fieldvals = flatten(
-                        filename_to_list(getattr(self.inputs, field)))
+                        ensure_list(getattr(self.inputs, field)))
                 else:
-                    fieldvals = filename_to_list(getattr(self.inputs, field))
+                    fieldvals = ensure_list(getattr(self.inputs, field))
                 logger.debug('setting input %d %s %s', i, field, fieldvals[i])
                 setattr(node.inputs, field, fieldvals[i])
             node.config = self.config
@@ -1160,7 +1148,7 @@ class MapNode(Node):
                     if not isdefined(values):
                         values = []
                     if nresult and nresult.outputs:
-                        values.insert(i, nresult.outputs.get()[key])
+                        values.insert(i, nresult.outputs.trait_get()[key])
                     else:
                         values.insert(i, None)
                     defined_vals = [isdefined(val) for val in values]
@@ -1172,7 +1160,7 @@ class MapNode(Node):
                 values = getattr(finalresult.outputs, key)
                 if isdefined(values):
                     values = unflatten(values,
-                                       filename_to_list(
+                                       ensure_list(
                                            getattr(self.inputs,
                                                    self.iterfield[0])))
                 setattr(finalresult.outputs, key, values)
@@ -1203,12 +1191,12 @@ class MapNode(Node):
             return 1
         if self.nested:
             return len(
-                filename_to_list(
+                ensure_list(
                     flatten(getattr(self.inputs, self.iterfield[0]))))
-        return len(filename_to_list(getattr(self.inputs, self.iterfield[0])))
+        return len(ensure_list(getattr(self.inputs, self.iterfield[0])))
 
     def _get_inputs(self):
-        old_inputs = self._inputs.get()
+        old_inputs = self._inputs.trait_get()
         self._inputs = self._create_dynamic_traits(
             self._interface.inputs, fields=self.iterfield)
         self._inputs.trait_set(**old_inputs)
@@ -1226,10 +1214,10 @@ class MapNode(Node):
                                   "in iterfields.") % iterfield)
         if len(self.iterfield) > 1:
             first_len = len(
-                filename_to_list(getattr(self.inputs, self.iterfield[0])))
+                ensure_list(getattr(self.inputs, self.iterfield[0])))
             for iterfield in self.iterfield[1:]:
                 if first_len != len(
-                        filename_to_list(getattr(self.inputs, iterfield))):
+                        ensure_list(getattr(self.inputs, iterfield))):
                     raise ValueError(
                         ("All iterfields of a MapNode have to "
                          "have the same length. %s") % str(self.inputs))
@@ -1248,11 +1236,11 @@ class MapNode(Node):
         # Set up mapnode folder names
         if self.nested:
             nitems = len(
-                filename_to_list(
+                ensure_list(
                     flatten(getattr(self.inputs, self.iterfield[0]))))
         else:
             nitems = len(
-                filename_to_list(getattr(self.inputs, self.iterfield[0])))
+                ensure_list(getattr(self.inputs, self.iterfield[0])))
         nnametpl = '_%s{}' % self.name
         nodenames = [nnametpl.format(i) for i in range(nitems)]
 

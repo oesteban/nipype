@@ -14,16 +14,11 @@ def test_BlurToFWHM_inputs():
         ),
         fwhm=dict(argstr='-FWHM %f', ),
         fwhmxy=dict(argstr='-FWHMxy %f', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='-input %s',
             mandatory=True,
         ),
-        mask=dict(argstr='-blurmaster %s', ),
+        mask=dict(argstr='-mask %s', ),
         num_threads=dict(
             nohash=True,
             usedefault=True,
@@ -34,10 +29,6 @@ def test_BlurToFWHM_inputs():
             name_template='%s_afni',
         ),
         outputtype=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
     )
     inputs = BlurToFWHM.input_spec()
 

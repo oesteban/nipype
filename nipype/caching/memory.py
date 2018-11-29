@@ -2,12 +2,6 @@
 """
 Using nipype with persistence and lazy recomputation but without explicit
 name-steps pipeline: getting back scope in command-line based programming.
-
-   Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../testing/data'))
-   >>> os.chdir(datadir)
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -94,7 +88,7 @@ class PipeFunc(object):
         return out
 
     def __repr__(self):
-        return '{}({}.{}}, base_dir={})'.format(
+        return '{}({}.{}), base_dir={})'.format(
             self.__class__.__name__, self.interface.__module__,
             self.interface.__name__, self.base_dir)
 

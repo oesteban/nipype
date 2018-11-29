@@ -11,16 +11,14 @@ def test_MNIBiasCorrection_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='--i %s',
             mandatory=True,
         ),
-        iterations=dict(argstr='--n %d', ),
+        iterations=dict(
+            argstr='--n %d',
+            usedefault=True,
+        ),
         mask=dict(argstr='--mask %s', ),
         no_rescale=dict(argstr='--no-rescale', ),
         out_file=dict(
@@ -34,10 +32,6 @@ def test_MNIBiasCorrection_inputs():
         shrink=dict(argstr='--shrink %d', ),
         stop=dict(argstr='--stop %f', ),
         subjects_dir=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         transform=dict(argstr='--uchar %s', ),
     )
     inputs = MNIBiasCorrection.input_spec()

@@ -10,13 +10,6 @@
 
     To come :
     XNATSink
-
-    Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../testing/data'))
-    >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -31,6 +24,7 @@ import os.path as op
 import shutil
 import subprocess
 import re
+import copy
 import tempfile
 from os.path import join, dirname
 from warnings import warn
@@ -38,7 +32,9 @@ from warnings import warn
 import sqlite3
 
 from .. import config, logging
-from ..utils.filemanip import copyfile, list_to_filename, filename_to_list
+from ..utils.filemanip import (
+    copyfile, simplify_list, ensure_list,
+    get_related_files, related_filetype_sets)
 from ..utils.misc import human_order_sorted, str2bool
 from .base import (
     TraitedSpec, traits, Str, File, Directory, BaseInterface, InputMultiPath,
@@ -46,9 +42,15 @@ from .base import (
 
 have_pybids = True
 try:
-    from bids import grabbids as gb
+    import bids
 except ImportError:
     have_pybids = False
+
+if have_pybids:
+    try:
+        from bids import layout as bidslayout
+    except ImportError:
+        from bids import grabbids as bidslayout
 
 try:
     import pyxnat
@@ -66,7 +68,7 @@ try:
 except:
     pass
 
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 
 def copytree(src, dst, use_hardlink=False):
@@ -125,6 +127,35 @@ def add_traits(base, names, trait_type=None):
     for key in names:
         _ = getattr(base, key)
     return base
+
+
+def _get_head_bucket(s3_resource, bucket_name):
+    """ Try to get the header info of a bucket, in order to
+    check if it exists and its permissions
+    """
+
+    import botocore
+
+    # Try fetch the bucket with the name argument
+    try:
+        s3_resource.meta.client.head_bucket(Bucket=bucket_name)
+    except botocore.exceptions.ClientError as exc:
+        error_code = int(exc.response['Error']['Code'])
+        if error_code == 403:
+            err_msg = 'Access to bucket: %s is denied; check credentials'\
+                        % bucket_name
+            raise Exception(err_msg)
+        elif error_code == 404:
+            err_msg = 'Bucket: %s does not exist; check spelling and try '\
+                        'again' % bucket_name
+            raise Exception(err_msg)
+        else:
+            err_msg = 'Unable to connect to bucket: %s. Error message:\n%s'\
+                        % (bucket_name, exc)
+    except Exception as exc:
+        err_msg = 'Unable to connect to bucket: %s. Error message:\n%s'\
+                    % (bucket_name, exc)
+        raise Exception(err_msg)
 
 
 class IOBase(BaseInterface):
@@ -517,7 +548,6 @@ class DataSink(IOBase):
 
         # Init variables
         creds_path = self.inputs.creds_path
-        iflogger = logging.getLogger('interface')
 
         # Get AWS credentials
         try:
@@ -540,42 +570,34 @@ class DataSink(IOBase):
             session = boto3.session.Session(
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key)
-            s3_resource = session.resource('s3', use_ssl=True)
 
-        # Otherwise, connect anonymously
         else:
-            iflogger.info('Connecting to AWS: %s anonymously...', bucket_name)
+            iflogger.info('Connecting to S3 bucket: %s with IAM role...',
+                          bucket_name)
+
+            # Lean on AWS environment / IAM role authentication and authorization
             session = boto3.session.Session()
-            s3_resource = session.resource('s3', use_ssl=True)
+
+        s3_resource = session.resource('s3', use_ssl=True)
+
+        # And try fetch the bucket with the name argument
+        try:
+            _get_head_bucket(s3_resource, bucket_name)
+        except Exception as exc:
+
+            # Try to connect anonymously
             s3_resource.meta.client.meta.events.register(
                 'choose-signer.s3.*', botocore.handlers.disable_signing)
+
+            iflogger.info('Connecting to AWS: %s anonymously...', bucket_name)
+            _get_head_bucket(s3_resource, bucket_name)
 
         # Explicitly declare a secure SSL connection for bucket object
         bucket = s3_resource.Bucket(bucket_name)
 
-        # And try fetch the bucket with the name argument
-        try:
-            s3_resource.meta.client.head_bucket(Bucket=bucket_name)
-        except botocore.exceptions.ClientError as exc:
-            error_code = int(exc.response['Error']['Code'])
-            if error_code == 403:
-                err_msg = 'Access to bucket: %s is denied; check credentials'\
-                          % bucket_name
-                raise Exception(err_msg)
-            elif error_code == 404:
-                err_msg = 'Bucket: %s does not exist; check spelling and try '\
-                          'again' % bucket_name
-                raise Exception(err_msg)
-            else:
-                err_msg = 'Unable to connect to bucket: %s. Error message:\n%s'\
-                          % (bucket_name, exc)
-        except Exception as exc:
-            err_msg = 'Unable to connect to bucket: %s. Error message:\n%s'\
-                      % (bucket_name, exc)
-            raise Exception(err_msg)
-
         # Return the bucket
         return bucket
+
 
     # Send up to S3 method
     def _upload_to_s3(self, bucket, src, dst):
@@ -591,15 +613,12 @@ class DataSink(IOBase):
         from botocore.exceptions import ClientError
 
         # Init variables
-        iflogger = logging.getLogger('interface')
         s3_str = 's3://'
         s3_prefix = s3_str + bucket.name
 
         # Explicitly lower-case the "s3"
-        if dst.lower().startswith(s3_str):
-            dst_sp = dst.split('/')
-            dst_sp[0] = dst_sp[0].lower()
-            dst = '/'.join(dst_sp)
+        if dst[:len(s3_str)].lower() == s3_str:
+            dst = s3_str + dst[len(s3_str):]
 
         # If src is a directory, collect files (this assumes dst is a dir too)
         if os.path.isdir(src):
@@ -659,7 +678,6 @@ class DataSink(IOBase):
         """
 
         # Init variables
-        iflogger = logging.getLogger('interface')
         outputs = self.output_spec().get()
         out_files = []
         # Use hardlink
@@ -725,7 +743,7 @@ class DataSink(IOBase):
             if not isdefined(files):
                 continue
             iflogger.debug("key: %s files: %s", key, str(files))
-            files = filename_to_list(files)
+            files = ensure_list(files)
             tempoutdir = outdir
             if s3_flag:
                 s3tempoutdir = s3dir
@@ -742,7 +760,7 @@ class DataSink(IOBase):
                     files = [item for sublist in files for item in sublist]
 
             # Iterate through passed-in source files
-            for src in filename_to_list(files):
+            for src in ensure_list(files):
                 # Format src and dst files
                 src = os.path.abspath(src)
                 if not os.path.isfile(src):
@@ -942,7 +960,7 @@ class S3DataGrabber(IOBase):
                 else:
                     if self.inputs.sort_filelist:
                         filelist = human_order_sorted(filelist)
-                    outputs[key] = list_to_filename(filelist)
+                    outputs[key] = simplify_list(filelist)
             for argnum, arglist in enumerate(args):
                 maxlen = 1
                 for arg in arglist:
@@ -991,7 +1009,7 @@ class S3DataGrabber(IOBase):
                     else:
                         if self.inputs.sort_filelist:
                             outfiles = human_order_sorted(outfiles)
-                        outputs[key].append(list_to_filename(outfiles))
+                        outputs[key].append(simplify_list(outfiles))
             if any([val is None for val in outputs[key]]):
                 outputs[key] = []
             if len(outputs[key]) == 0:
@@ -1044,6 +1062,10 @@ class DataGrabberInputSpec(DynamicTraitedSpec, BaseInterfaceInputSpec):
         True,
         usedefault=True,
         desc='Generate exception if list is empty for a given field')
+    drop_blank_outputs = traits.Bool(
+        False, usedefault=True,
+        desc="Remove ``None`` entries from output lists"
+        )
     sort_filelist = traits.Bool(
         mandatory=True, desc='Sort the filelist that matches the template')
     template = Str(
@@ -1195,7 +1217,7 @@ class DataGrabber(IOBase):
                 else:
                     if self.inputs.sort_filelist:
                         filelist = human_order_sorted(filelist)
-                    outputs[key] = list_to_filename(filelist)
+                    outputs[key] = simplify_list(filelist)
             for argnum, arglist in enumerate(args):
                 maxlen = 1
                 for arg in arglist:
@@ -1241,9 +1263,12 @@ class DataGrabber(IOBase):
                     else:
                         if self.inputs.sort_filelist:
                             outfiles = human_order_sorted(outfiles)
-                        outputs[key].append(list_to_filename(outfiles))
-            if any([val is None for val in outputs[key]]):
-                outputs[key] = []
+                        outputs[key].append(simplify_list(outfiles))
+            if self.inputs.drop_blank_outputs:
+                outputs[key] = [x for x in outputs[key] if x is not None]
+            else:
+                if any([val is None for val in outputs[key]]):
+                    outputs[key] = []
             if len(outputs[key]) == 0:
                 outputs[key] = None
             elif len(outputs[key]) == 1:
@@ -1406,7 +1431,7 @@ class SelectFiles(IOBase):
 
             # Handle whether this must be a list or not
             if field not in force_lists:
-                filelist = list_to_filename(filelist)
+                filelist = simplify_list(filelist)
 
             outputs[field] = filelist
 
@@ -1747,7 +1772,7 @@ class FreeSurferSource(IOBase):
                 globprefix = self.inputs.hemi + '.'
             else:
                 globprefix = '*'
-        keys = filename_to_list(altkey) if altkey else [key]
+        keys = ensure_list(altkey) if altkey else [key]
         globfmt = os.path.join(path, dirval, ''.join((globprefix, '{}',
                                                       globsuffix)))
         return [
@@ -1765,7 +1790,7 @@ class FreeSurferSource(IOBase):
                                   output_traits.traits()[k].loc,
                                   output_traits.traits()[k].altkey)
             if val:
-                outputs[k] = list_to_filename(val)
+                outputs[k] = simplify_list(val)
         return outputs
 
 
@@ -1906,7 +1931,7 @@ class XNATSource(IOBase):
                 file_objects = xnat.select(template).get('obj')
                 if file_objects == []:
                     raise IOError('Template %s returned no files' % template)
-                outputs[key] = list_to_filename([
+                outputs[key] = simplify_list([
                     str(file_object.get()) for file_object in file_objects
                     if file_object.exists()
                 ])
@@ -1941,7 +1966,7 @@ class XNATSource(IOBase):
                             raise IOError('Template %s '
                                           'returned no files' % target)
 
-                        outfiles = list_to_filename([
+                        outfiles = simplify_list([
                             str(file_object.get())
                             for file_object in file_objects
                             if file_object.exists()
@@ -1953,7 +1978,7 @@ class XNATSource(IOBase):
                             raise IOError('Template %s '
                                           'returned no files' % template)
 
-                        outfiles = list_to_filename([
+                        outfiles = simplify_list([
                             str(file_object.get())
                             for file_object in file_objects
                             if file_object.exists()
@@ -2076,7 +2101,7 @@ class XNATSink(IOBase):
         # gather outputs and upload them
         for key, files in list(self.inputs._outputs.items()):
 
-            for name in filename_to_list(files):
+            for name in ensure_list(files):
 
                 if isinstance(name, list):
                     for i, file_name in enumerate(name):
@@ -2202,7 +2227,7 @@ class SQLiteSink(IOBase):
 
         super(SQLiteSink, self).__init__(**inputs)
 
-        self._input_names = filename_to_list(input_names)
+        self._input_names = ensure_list(input_names)
         add_traits(self.inputs, [name for name in self._input_names])
 
     def _list_outputs(self):
@@ -2260,7 +2285,7 @@ class MySQLSink(IOBase):
 
         super(MySQLSink, self).__init__(**inputs)
 
-        self._input_names = filename_to_list(input_names)
+        self._input_names = ensure_list(input_names)
         add_traits(self.inputs, [name for name in self._input_names])
 
     def _list_outputs(self):
@@ -2405,6 +2430,65 @@ class SSHDataGrabber(DataGrabber):
                 and self.inputs.template[-1] != '$'):
             self.inputs.template += '$'
 
+    def _get_files_over_ssh(self, template):
+        """Get the files matching template over an SSH connection."""
+        # Connect over SSH
+        client = self._get_ssh_client()
+        sftp = client.open_sftp()
+        sftp.chdir(self.inputs.base_directory)
+
+        # Get all files in the dir, and filter for desired files
+        template_dir = os.path.dirname(template)
+        template_base = os.path.basename(template)
+        every_file_in_dir = sftp.listdir(template_dir)
+        if self.inputs.template_expression == 'fnmatch':
+            outfiles = fnmatch.filter(every_file_in_dir, template_base)
+        elif self.inputs.template_expression == 'regexp':
+            regexp = re.compile(template_base)
+            outfiles = list(filter(regexp.match, every_file_in_dir))
+        else:
+            raise ValueError('template_expression value invalid')
+
+        if len(outfiles) == 0:
+            # no files
+            msg = 'Output template: %s returned no files' % template
+            if self.inputs.raise_on_empty:
+                raise IOError(msg)
+            else:
+                warn(msg)
+
+            # return value
+            outfiles = None
+
+        else:
+            # found files, sort and save to outputs
+            if self.inputs.sort_filelist:
+                outfiles = human_order_sorted(outfiles)
+
+            # actually download the files, if desired
+            if self.inputs.download_files:
+                files_to_download = copy.copy(outfiles) # make sure new list!
+
+                # check to see if there are any related files to download
+                for file_to_download in files_to_download:
+                    related_to_current = get_related_files(
+                        file_to_download, include_this_file=False)
+                    existing_related_not_downloading = [
+                        f for f in related_to_current
+                        if f in every_file_in_dir and f not in files_to_download]
+                    files_to_download.extend(existing_related_not_downloading)
+
+                for f in files_to_download:
+                    try:
+                        sftp.get(os.path.join(template_dir, f), f)
+                    except IOError:
+                        iflogger.info('remote file %s not found' % f)
+
+            # return value
+            outfiles = simplify_list(outfiles)
+
+        return outfiles
+
     def _list_outputs(self):
         try:
             paramiko
@@ -2432,32 +2516,10 @@ class SSHDataGrabber(DataGrabber):
                     isdefined(self.inputs.field_template) and \
                     key in self.inputs.field_template:
                 template = self.inputs.field_template[key]
+
             if not args:
-                client = self._get_ssh_client()
-                sftp = client.open_sftp()
-                sftp.chdir(self.inputs.base_directory)
-                filelist = sftp.listdir()
-                if self.inputs.template_expression == 'fnmatch':
-                    filelist = fnmatch.filter(filelist, template)
-                elif self.inputs.template_expression == 'regexp':
-                    regexp = re.compile(template)
-                    filelist = list(filter(regexp.match, filelist))
-                else:
-                    raise ValueError('template_expression value invalid')
-                if len(filelist) == 0:
-                    msg = 'Output key: %s Template: %s returned no files' % (
-                        key, template)
-                    if self.inputs.raise_on_empty:
-                        raise IOError(msg)
-                    else:
-                        warn(msg)
-                else:
-                    if self.inputs.sort_filelist:
-                        filelist = human_order_sorted(filelist)
-                    outputs[key] = list_to_filename(filelist)
-                if self.inputs.download_files:
-                    for f in filelist:
-                        sftp.get(f, f)
+                outputs[key] = self._get_files_over_ssh(template)
+
             for argnum, arglist in enumerate(args):
                 maxlen = 1
                 for arg in arglist:
@@ -2491,44 +2553,18 @@ class SSHDataGrabber(DataGrabber):
                                 e.message +
                                 ": Template %s failed to convert with args %s"
                                 % (template, str(tuple(argtuple))))
-                    client = self._get_ssh_client()
-                    sftp = client.open_sftp()
-                    sftp.chdir(self.inputs.base_directory)
-                    filledtemplate_dir = os.path.dirname(filledtemplate)
-                    filledtemplate_base = os.path.basename(filledtemplate)
-                    filelist = sftp.listdir(filledtemplate_dir)
-                    if self.inputs.template_expression == 'fnmatch':
-                        outfiles = fnmatch.filter(filelist,
-                                                  filledtemplate_base)
-                    elif self.inputs.template_expression == 'regexp':
-                        regexp = re.compile(filledtemplate_base)
-                        outfiles = list(filter(regexp.match, filelist))
-                    else:
-                        raise ValueError('template_expression value invalid')
-                    if len(outfiles) == 0:
-                        msg = 'Output key: %s Template: %s returned no files' % (
-                            key, filledtemplate)
-                        if self.inputs.raise_on_empty:
-                            raise IOError(msg)
-                        else:
-                            warn(msg)
-                        outputs[key].append(None)
-                    else:
-                        if self.inputs.sort_filelist:
-                            outfiles = human_order_sorted(outfiles)
-                        outputs[key].append(list_to_filename(outfiles))
-                        if self.inputs.download_files:
-                            for f in outfiles:
-                                try:
-                                    sftp.get(
-                                        os.path.join(filledtemplate_dir, f), f)
-                                except IOError:
-                                    iflogger.info('remote file %s not found',
-                                                  f)
+
+                    outputs[key].append(self._get_files_over_ssh(filledtemplate))
+
+            # disclude where there was any invalid matches
             if any([val is None for val in outputs[key]]):
                 outputs[key] = []
+
+            # no outputs is None, not empty list
             if len(outputs[key]) == 0:
                 outputs[key] = None
+
+            # one output is the item, not a list
             elif len(outputs[key]) == 1:
                 outputs[key] = outputs[key][0]
 
@@ -2571,13 +2607,6 @@ class JSONFileGrabber(IOBase):
     Example
     -------
 
-    .. testsetup::
-
-    >>> tmp = getfixture('tmpdir')
-    >>> old = tmp.chdir() # changing to a temporary directory
-
-    .. doctest::
-
     >>> import pprint
     >>> from nipype.interfaces.io import JSONFileGrabber
     >>> jsonSource = JSONFileGrabber()
@@ -2589,11 +2618,6 @@ class JSONFileGrabber(IOBase):
     >>> res = jsonSource.run()
     >>> pprint.pprint(res.outputs.get())  # doctest:, +ELLIPSIS
     {'param1': 'exampleStr', 'param2': 4, 'param3': 1.0}
-
-    .. testsetup::
-
-    >>> os.chdir(old.strpath)
-
     """
     input_spec = JSONFileGrabberInputSpec
     output_spec = DynamicTraitedSpec
@@ -2737,6 +2761,8 @@ class BIDSDataGrabberInputSpec(DynamicTraitedSpec):
                                  desc='Generate exception if list is empty '
                                  'for a given field')
     return_type = traits.Enum('file', 'namedtuple', usedefault=True)
+    strict = traits.Bool(desc='Return only BIDS "proper" files (e.g., '
+                              'ignore derivatives/, sourcedata/, etc.)')
 
 
 class BIDSDataGrabber(IOBase):
@@ -2783,12 +2809,14 @@ class BIDSDataGrabber(IOBase):
         super(BIDSDataGrabber, self).__init__(**kwargs)
 
         if not isdefined(self.inputs.output_query):
-            self.inputs.output_query = {"func": {"modality": "func"},
-                                        "anat": {"modality": "anat"}}
+            self.inputs.output_query = {
+                "func": {"modality": "func", 'extensions': ['nii', '.nii.gz']},
+                "anat": {"modality": "anat", 'extensions': ['nii', '.nii.gz']},
+                }
 
         # If infields is empty, use all BIDS entities
         if infields is None and have_pybids:
-            bids_config = join(dirname(gb.__file__), 'config', 'bids.json')
+            bids_config = join(dirname(bidslayout.__file__), 'config', 'bids.json')
             bids_config = json.load(open(bids_config, 'r'))
             infields = [i['name'] for i in bids_config['entities']]
 
@@ -2810,7 +2838,10 @@ class BIDSDataGrabber(IOBase):
         return runtime
 
     def _list_outputs(self):
-        layout = gb.BIDSLayout(self.inputs.base_dir)
+        exclude = None
+        if self.inputs.strict:
+            exclude = ['derivatives/', 'code/', 'sourcedata/']
+        layout = bidslayout.BIDSLayout(self.inputs.base_dir, exclude=exclude)
 
         # If infield is not given nm input value, silently ignore
         filters = {}

@@ -9,7 +9,7 @@ Documentation
    :Release: |version|
    :Date: |today|
 
-Previous versions: `0.14.0 <http://nipype.readthedocs.io/en/v0.14.0/>`_ `0.13.1 <http://nipype.readthedocs.io/en/0.13.1/>`_
+Previous versions: `1.1.5 <http://nipype.readthedocs.io/en/1.1.5/>`_ `1.1.4 <http://nipype.readthedocs.io/en/1.1.4/>`_
 
 
 .. container:: doc2
@@ -17,32 +17,6 @@ Previous versions: `0.14.0 <http://nipype.readthedocs.io/en/v0.14.0/>`_ `0.13.1 
   .. admonition:: Michael Notter's Nipype guide
 
     Be sure to read `Michael's excellent tutorials <https://miykael.github.io/nipype_tutorial/>`_.
-
-  .. admonition:: Guides
-
-    .. hlist::
-       :columns: 2
-
-       * User
-
-         .. toctree::
-            :maxdepth: 2
-
-            users/index
-
-         .. toctree::
-            :maxdepth: 1
-
-            changes
-
-       * Developer
-
-         .. toctree::
-            :maxdepth: 2
-
-            api/index
-            devel/index
-
 
   .. admonition:: Interfaces, Workflows and Examples
 
@@ -71,5 +45,24 @@ Previous versions: `0.14.0 <http://nipype.readthedocs.io/en/v0.14.0/>`_ `0.13.1 
 
             interfaces/generated/*algorithms*
             interfaces/generated/*interfaces*
+
+  .. admonition:: Developer Guides
+
+    .. hlist::
+       :columns: 2
+
+       * API
+
+         .. toctree::
+            :maxdepth: 2
+
+            api/index
+
+       * Developer Guide
+
+         .. toctree::
+            :maxdepth: 2
+
+            devel/index
 
 .. include:: links_names.txt

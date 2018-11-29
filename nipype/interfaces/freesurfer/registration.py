@@ -2,13 +2,6 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """Provides interfaces to various longitudinal commands provided by freesurfer
-
-   Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-   >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -24,7 +17,7 @@ from .base import (FSCommand, FSTraitedSpec, FSScriptCommand,
 from ..base import (isdefined, TraitedSpec, File, traits, Directory)
 
 __docformat__ = 'restructuredtext'
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 
 class MPRtoMNI305InputSpec(FSTraitedSpec):

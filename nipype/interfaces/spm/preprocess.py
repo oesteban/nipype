@@ -2,12 +2,6 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """SPM wrappers for preprocessing data
-
-   Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-   >>> os.chdir(datadir)
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -20,14 +14,149 @@ from copy import deepcopy
 import numpy as np
 
 # Local imports
-from ...utils.filemanip import (fname_presuffix, filename_to_list,
-                                list_to_filename, split_filename)
-from ..base import (OutputMultiPath, TraitedSpec, isdefined, traits,
-                    InputMultiPath, File)
-from .base import (SPMCommand, scans_for_fname, func_is_3d, scans_for_fnames,
-                   SPMCommandInputSpec, ImageFileSPM)
+from ...utils.filemanip import (fname_presuffix, ensure_list,
+                                simplify_list, split_filename)
+from ..base import (OutputMultiPath, TraitedSpec, isdefined,
+                    traits, InputMultiPath, InputMultiObject, File, Str)
+from .base import (SPMCommand, scans_for_fname, func_is_3d,
+                   scans_for_fnames, SPMCommandInputSpec, ImageFileSPM)
 
 __docformat__ = 'restructuredtext'
+
+
+class FieldMapInputSpec(SPMCommandInputSpec):
+    jobtype = traits.Enum('calculatevdm', 'applyvdm', usedefault=True,
+        desc='one of: calculatevdm, applyvdm')
+    phase_file = File(mandatory=True, exists=True, copyfile=False,
+        field='subj.data.presubphasemag.phase',
+        desc='presubstracted phase file')
+    magnitude_file = File(mandatory=True, exists=True, copyfile=False,
+        field='subj.data.presubphasemag.magnitude',
+        desc='presubstracted magnitude file')
+    echo_times = traits.Tuple(traits.Float, traits.Float, mandatory=True,
+        field='subj.defaults.defaultsval.et',
+        desc='short and long echo times')
+    maskbrain = traits.Bool(True, usedefault=True,
+        field='subj.defaults.defaultsval.maskbrain',
+        desc='masking or no masking of the brain')
+    blip_direction = traits.Enum(1, -1, mandatory=True,
+        field='subj.defaults.defaultsval.blipdir',
+        desc='polarity of the phase-encode blips')
+    total_readout_time = traits.Float(mandatory=True,
+        field='subj.defaults.defaultsval.tert',
+        desc='total EPI readout time')
+    epifm = traits.Bool(False, usedefault=True,
+        field='subj.defaults.defaultsval.epifm',
+        desc='epi-based field map');
+    jacobian_modulation = traits.Bool(False, usedefault=True,
+        field='subj.defaults.defaultsval.ajm',
+        desc='jacobian modulation');
+    # Unwarping defaults parameters
+    method = traits.Enum('Mark3D', 'Mark2D', 'Huttonish', usedefault=True,
+        desc='One of: Mark3D, Mark2D, Huttonish',
+        field='subj.defaults.defaultsval.uflags.method');
+    unwarp_fwhm = traits.Range(low=0, value=10, usedefault=True,
+        field='subj.defaults.defaultsval.uflags.fwhm',
+        desc='gaussian smoothing kernel width');
+    pad = traits.Range(low=0, value=0, usedefault=True,
+        field='subj.defaults.defaultsval.uflags.pad',
+        desc='padding kernel width');
+    ws = traits.Bool(True, usedefault=True,
+        field='subj.defaults.defaultsval.uflags.ws',
+        desc='weighted smoothing');
+    # Brain mask defaults parameters
+    template = File(copyfile=False, exists=True,
+        field='subj.defaults.defaultsval.mflags.template',
+        desc='template image for brain masking');
+    mask_fwhm = traits.Range(low=0, value=5, usedefault=True,
+        field='subj.defaults.defaultsval.mflags.fwhm',
+        desc='gaussian smoothing kernel width');
+    nerode = traits.Range(low=0, value=2, usedefault=True,
+        field='subj.defaults.defaultsval.mflags.nerode',
+        desc='number of erosions');
+    ndilate = traits.Range(low=0, value=4, usedefault=True,
+        field='subj.defaults.defaultsval.mflags.ndilate',
+        desc='number of erosions');
+    thresh = traits.Float(0.5, usedefault=True,
+        field='subj.defaults.defaultsval.mflags.thresh',
+        desc='threshold used to create brain mask from segmented data');
+    reg = traits.Float(0.02, usedefault=True,
+        field='subj.defaults.defaultsval.mflags.reg',
+        desc='regularization value used in the segmentation');
+    # EPI unwarping for quality check
+    epi_file = File(copyfile=False, exists=True, mandatory=True,
+        field='subj.session.epi',
+        desc='EPI to unwarp');
+    matchvdm = traits.Bool(True, usedefault=True,
+        field='subj.matchvdm',
+        desc='match VDM to EPI');
+    sessname = Str('_run-', usedefault=True,
+        field='subj.sessname',
+        desc='VDM filename extension');
+    writeunwarped = traits.Bool(False, usedefault=True,
+        field='subj.writeunwarped',
+        desc='write unwarped EPI');
+    anat_file = File(copyfile=False, exists=True,
+        field='subj.anat',
+        desc='anatomical image for comparison');
+    matchanat = traits.Bool(True, usedefault=True,
+        field='subj.matchanat',
+        desc='match anatomical image to EPI');
+
+
+class FieldMapOutputSpec(TraitedSpec):
+    vdm = File(exists=True, desc='voxel difference map')
+
+
+class FieldMap(SPMCommand):
+    """Use the fieldmap toolbox from spm to calculate the voxel displacement map (VDM).
+
+    http://www.fil.ion.ucl.ac.uk/spm/doc/manual.pdf#page=173
+
+    To do
+    -----
+    Deal with real/imag magnitude images and with the two phase files case.
+
+    Examples
+    --------
+    >>> from nipype.interfaces.spm import FieldMap
+    >>> fm = FieldMap()
+    >>> fm.inputs.phase_file = 'phase.nii'
+    >>> fm.inputs.magnitude_file = 'magnitude.nii'
+    >>> fm.inputs.echo_times = (5.19, 7.65)
+    >>> fm.inputs.blip_direction = 1
+    >>> fm.inputs.total_readout_time = 15.6
+    >>> fm.inputs.epi_file = 'epi.nii'
+    >>> fm.run() # doctest: +SKIP
+
+    """
+
+    input_spec = FieldMapInputSpec
+    output_spec = FieldMapOutputSpec
+    _jobtype = 'tools'
+    _jobname = 'fieldmap'
+
+    def _format_arg(self, opt, spec, val):
+        """Convert input to appropriate format for spm
+        """
+        if opt in ['phase_file', 'magnitude_file', 'anat_file', 'epi_file']:
+            return scans_for_fname(ensure_list(val))
+
+        return super(FieldMap, self)._format_arg(opt, spec, val)
+
+    def _parse_inputs(self):
+        """validate spm fieldmap options if set to None ignore
+        """
+        einputs = super(FieldMap, self)._parse_inputs()
+        return [{self.inputs.jobtype: einputs[0]}]
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        jobtype = self.inputs.jobtype
+        if jobtype == "calculatevdm":
+            outputs['vdm'] = fname_presuffix(self.inputs.phase_file, prefix='vdm5_sc')
+
+        return outputs
 
 
 class SliceTimingInputSpec(SPMCommandInputSpec):
@@ -103,14 +232,14 @@ class SliceTiming(SPMCommand):
         """
         if opt == 'in_files':
             return scans_for_fnames(
-                filename_to_list(val), keep4d=False, separate_sessions=True)
+                ensure_list(val), keep4d=False, separate_sessions=True)
         return super(SliceTiming, self)._format_arg(opt, spec, val)
 
     def _list_outputs(self):
         outputs = self._outputs().get()
         outputs['timecorrected_files'] = []
 
-        filelist = filename_to_list(self.inputs.in_files)
+        filelist = ensure_list(self.inputs.in_files)
         for f in filelist:
             if isinstance(f, list):
                 run = [
@@ -125,7 +254,8 @@ class SliceTiming(SPMCommand):
 
 class RealignInputSpec(SPMCommandInputSpec):
     in_files = InputMultiPath(
-        ImageFileSPM(exists=True),
+        traits.Either(ImageFileSPM(exists=True),
+                      traits.List(ImageFileSPM(exists=True))),
         field='data',
         mandatory=True,
         copyfile=True,
@@ -293,10 +423,10 @@ class Realign(SPMCommand):
             if resliced_all:
                 outputs['realigned_files'] = []
                 for idx, imgf in enumerate(
-                        filename_to_list(self.inputs.in_files)):
+                        ensure_list(self.inputs.in_files)):
                     realigned_run = []
                     if isinstance(imgf, list):
-                        for i, inner_imgf in enumerate(filename_to_list(imgf)):
+                        for i, inner_imgf in enumerate(ensure_list(imgf)):
                             newfile = fname_presuffix(
                                 inner_imgf, prefix=self.inputs.out_prefix)
                             realigned_run.append(newfile)
@@ -304,6 +434,252 @@ class Realign(SPMCommand):
                         realigned_run = fname_presuffix(
                             imgf, prefix=self.inputs.out_prefix)
                     outputs['realigned_files'].append(realigned_run)
+        return outputs
+
+
+class RealignUnwarpInputSpec(SPMCommandInputSpec):
+
+    in_files = InputMultiObject(
+        traits.Either(ImageFileSPM(exists=True),
+                      traits.List(ImageFileSPM(exists=True))),
+        field='data.scans',
+        mandatory=True, 
+        copyfile=True,
+        desc='list of filenames to realign and unwarp')
+    phase_map = File(
+        field='data.pmscan',
+        desc='Voxel displacement map to use in unwarping. Unlike SPM standard '
+             'behaviour, the same map will be used for all sessions',
+        copyfile=False)
+    quality = traits.Range(
+        low=0.0, 
+        high=1.0, 
+        field='eoptions.quality',
+        desc='0.1 = fast, 1.0 = precise')
+    fwhm = traits.Range(
+        low=0.0, 
+        field='eoptions.fwhm',
+        desc='gaussian smoothing kernel width')
+    separation = traits.Range(
+        low=0.0, 
+        field='eoptions.sep',
+        desc='sampling separation in mm')
+    register_to_mean = traits.Bool(
+        field='eoptions.rtm',
+        desc='Indicate whether realignment is done to the mean image')
+    weight_img = File(
+        exists=True, 
+        field='eoptions.weight',
+        desc='filename of weighting image')
+    interp = traits.Range(
+        low=0, 
+        high=7, 
+        field='eoptions.einterp',
+        desc='degree of b-spline used for interpolation')
+    wrap = traits.List(
+        traits.Int(), 
+        minlen=3, 
+        maxlen=3,
+        field='eoptions.ewrap',
+        desc='Check if interpolation should wrap in [x,y,z]')
+    est_basis_func = traits.List(
+        traits.Int(), 
+        minlen=2, 
+        maxlen=2,
+        field='uweoptions.basfcn',
+        desc='Number of basis functions to use for each dimension')
+    est_reg_order = traits.Range(
+        low=0, 
+        high=3, 
+        field='uweoptions.regorder',
+        desc=('This parameter determines how to balance the compromise between likelihood '
+              'maximization and smoothness maximization of the estimated field.'))
+    est_reg_factor = traits.ListInt(
+        [100000], 
+        field='uweoptions.lambda',
+        minlen=1, 
+        maxlen=1,
+        usedefault=True,
+        desc='Regularisation factor. Default: 100000 (medium).')
+    est_jacobian_deformations = traits.Bool(
+        field='uweoptions.jm',
+        desc=('Jacobian deformations. In theory a good idea to include them, '
+             ' in practice a bad idea. Default: No.'))
+    est_first_order_effects = traits.List(
+        traits.Int(), 
+        minlen=1, 
+        maxlen=6,
+        field='uweoptions.fot',
+        desc='First order effects should only depend on pitch and roll, i.e. [4 5]')
+    est_second_order_effects = traits.List(
+        traits.Int(), 
+        minlen=1, 
+        maxlen=6,
+        field='uweoptions.sot',
+        desc='List of second order terms to model second derivatives of.')
+    est_unwarp_fwhm = traits.Range(
+        low=0.0, 
+        field='uweoptions.uwfwhm',
+        desc='gaussian smoothing kernel width for unwarp')
+    est_re_est_mov_par = traits.Bool(
+        field='uweoptions.rem',
+        desc='Re-estimate movement parameters at each unwarping iteration.')
+    est_num_of_interations = traits.ListInt(
+        [5], 
+        field='uweoptions.noi',
+        minlen=1, 
+        maxlen=1, 
+        usedfault=True,
+        desc='Number of iterations.')
+    est_taylor_expansion_point = traits.String(
+        'Average', 
+        field='uweoptions.expround',
+        usedefault=True,
+        desc='Point in position space to perform Taylor-expansion around.')
+    reslice_which = traits.ListInt(
+        [2, 1], 
+        field='uwroptions.uwwhich',
+        minlen=2, 
+        maxlen=2, 
+        usedefault=True,
+        desc='determines which images to reslice')
+    reslice_interp = traits.Range(
+        low=0, 
+        high=7, 
+        field='uwroptions.rinterp',
+        desc='degree of b-spline used for interpolation')
+    reslice_wrap = traits.List(
+        traits.Int(), 
+        minlen=3, 
+        maxlen=3,
+        field='uwroptions.wrap',
+        desc='Check if interpolation should wrap in [x,y,z]')
+    reslice_mask = traits.Bool(
+        field='uwroptions.mask',
+        desc='True/False mask output image')
+    out_prefix = traits.String(
+        'u', 
+        field='uwroptions.prefix', 
+        usedefault=True,
+        desc='realigned and unwarped output prefix')
+
+
+class RealignUnwarpOutputSpec(TraitedSpec):
+    mean_image = File(exists=True, desc='Mean image file from the realignment & unwarping')
+    modified_in_files = OutputMultiPath(
+        traits.Either(traits.List(File(exists=True)), File(exists=True)),
+        desc=('Copies of all files passed to '
+              'in_files. Headers will have '
+              'been modified to align all '
+              'images with the first, or '
+              'optionally to first do that, '
+              'extract a mean image, and '
+              're-align to that mean image.'))
+    realigned_unwarped_files = OutputMultiPath(
+        traits.Either(traits.List(File(exists=True)), File(exists=True)),
+        desc='Realigned and unwarped files written to disc.')
+    realignment_parameters = OutputMultiPath(
+        File(exists=True),
+        desc='Estimated translation and rotation parameters')
+
+
+class RealignUnwarp(SPMCommand):
+    """Use spm_uw_estimate for estimating within subject registration and unwarping
+    of time series. Function accepts only one single field map. If in_files is a 
+    list of files they will be treated as separate sessions but associated to the
+    same fieldmap.
+
+    http://www.fil.ion.ucl.ac.uk/spm/doc/manual.pdf#page=31
+
+    Examples
+    --------
+
+    >>> import nipype.interfaces.spm as spm
+    >>> realignUnwarp = spm.RealignUnwarp()
+    >>> realignUnwarp.inputs.in_files = ['functional.nii', 'functional2.nii']
+    >>> realignUnwarp.inputs.phase_map = 'voxeldisplacemap.vdm'
+    >>> realignUnwarp.inputs.register_to_mean = True
+    >>> realignUnwarp.run() # doctest: +SKIP
+
+    """
+
+    input_spec = RealignUnwarpInputSpec
+    output_spec = RealignUnwarpOutputSpec
+
+    _jobtype = 'spatial'
+    _jobname = 'realignunwarp'
+
+    def _format_arg(self, opt, spec, val):
+        """Convert input to appropriate format for spm
+        """
+        if opt == 'in_files':
+            return scans_for_fnames(ensure_list(val),
+                                    keep4d=False,
+                                    separate_sessions=True)
+        return super(RealignUnwarp, self)._format_arg(opt, spec, val)
+   
+
+    def _parse_inputs(self, skip=()):
+
+        spmdict = super(RealignUnwarp, self)._parse_inputs(skip=())[0]
+
+        if isdefined(self.inputs.phase_map):
+            pmscan = spmdict['data']['pmscan']
+        else:
+            pmscan = ''
+
+        if isdefined(self.inputs.in_files):
+            if isinstance(self.inputs.in_files, list):
+                data = [dict(scans = sess, pmscan = pmscan) 
+                                          for sess in spmdict['data']['scans']]
+            else:
+                data = [dict(scans = spmdict['data']['scans'], pmscan = pmscan)]
+
+        spmdict['data'] = data
+
+        return [spmdict]
+
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        resliced_all = self.inputs.reslice_which[0] > 0
+        resliced_mean = self.inputs.reslice_which[1] > 0
+
+        if isdefined(self.inputs.in_files):
+            outputs['realignment_parameters'] = []
+        for imgf in self.inputs.in_files:
+            if isinstance(imgf, list):
+                tmp_imgf = imgf[0]
+            else:
+                tmp_imgf = imgf
+            outputs['realignment_parameters'].append(fname_presuffix(tmp_imgf,
+                                                                     prefix='rp_',
+                                                                     suffix='.txt',
+                                                                     use_ext=False))
+            if not isinstance(imgf, list) and func_is_3d(imgf):
+                break
+
+        if isinstance(self.inputs.in_files[0], list):
+            first_image = self.inputs.in_files[0][0]
+        else:
+            first_image = self.inputs.in_files[0]
+
+        if resliced_mean:
+            outputs['mean_image'] = fname_presuffix(first_image, prefix='meanu')
+
+        if resliced_all:
+            outputs['realigned_unwarped_files'] = []
+            for idx, imgf in enumerate(ensure_list(self.inputs.in_files)):
+                realigned_run = []
+                if isinstance(imgf, list):
+                    for i, inner_imgf in enumerate(ensure_list(imgf)):
+                        newfile = fname_presuffix(inner_imgf,
+                                                  prefix=self.inputs.out_prefix)
+                        realigned_run.append(newfile)
+                else:
+                    realigned_run = fname_presuffix(imgf,
+                                                    prefix=self.inputs.out_prefix)
+                outputs['realigned_unwarped_files'].append(realigned_run)
         return outputs
 
 
@@ -409,9 +785,9 @@ class Coregister(SPMCommand):
         """
         if (opt == 'target'
                 or (opt == 'source' and self.inputs.jobtype != "write")):
-            return scans_for_fnames(filename_to_list(val), keep4d=True)
+            return scans_for_fnames(ensure_list(val), keep4d=True)
         if opt == 'apply_to_files':
-            return np.array(filename_to_list(val), dtype=object)
+            return np.array(ensure_list(val), dtype=object)
         if opt == 'source' and self.inputs.jobtype == "write":
             if isdefined(self.inputs.apply_to_files):
                 return scans_for_fnames(val + self.inputs.apply_to_files)
@@ -441,12 +817,12 @@ class Coregister(SPMCommand):
               or self.inputs.jobtype == "estwrite"):
             if isdefined(self.inputs.apply_to_files):
                 outputs['coregistered_files'] = []
-                for imgf in filename_to_list(self.inputs.apply_to_files):
+                for imgf in ensure_list(self.inputs.apply_to_files):
                     (outputs['coregistered_files'].append(
                         fname_presuffix(imgf, prefix=self.inputs.out_prefix)))
 
             outputs['coregistered_source'] = []
-            for imgf in filename_to_list(self.inputs.source):
+            for imgf in ensure_list(self.inputs.source):
                 (outputs['coregistered_source'].append(
                     fname_presuffix(imgf, prefix=self.inputs.out_prefix)))
 
@@ -583,13 +959,13 @@ class Normalize(SPMCommand):
         """Convert input to appropriate format for spm
         """
         if opt == 'template':
-            return scans_for_fname(filename_to_list(val))
+            return scans_for_fname(ensure_list(val))
         if opt == 'source':
-            return scans_for_fname(filename_to_list(val))
+            return scans_for_fname(ensure_list(val))
         if opt == 'apply_to_files':
-            return scans_for_fnames(filename_to_list(val))
+            return scans_for_fnames(ensure_list(val))
         if opt == 'parameter_file':
-            return np.array([list_to_filename(val)], dtype=object)
+            return np.array([simplify_list(val)], dtype=object)
         if opt in ['write_wrap']:
             if len(val) != 3:
                 raise ValueError('%s must have 3 elements' % opt)
@@ -619,10 +995,10 @@ class Normalize(SPMCommand):
         jobtype = self.inputs.jobtype
         if jobtype.startswith('est'):
             outputs['normalization_parameters'] = []
-            for imgf in filename_to_list(self.inputs.source):
+            for imgf in ensure_list(self.inputs.source):
                 outputs['normalization_parameters'].append(
                     fname_presuffix(imgf, suffix='_sn.mat', use_ext=False))
-            outputs['normalization_parameters'] = list_to_filename(
+            outputs['normalization_parameters'] = simplify_list(
                 outputs['normalization_parameters'])
 
         if self.inputs.jobtype == "estimate":
@@ -637,7 +1013,7 @@ class Normalize(SPMCommand):
                 prefixNorm = self.inputs.out_prefix
             outputs['normalized_files'] = []
             if isdefined(self.inputs.apply_to_files):
-                filelist = filename_to_list(self.inputs.apply_to_files)
+                filelist = ensure_list(self.inputs.apply_to_files)
                 for f in filelist:
                     if isinstance(f, list):
                         run = [
@@ -649,7 +1025,7 @@ class Normalize(SPMCommand):
                     outputs['normalized_files'].extend(run)
             if isdefined(self.inputs.source):
                 outputs['normalized_source'] = []
-                for imgf in filename_to_list(self.inputs.source):
+                for imgf in ensure_list(self.inputs.source):
                     outputs['normalized_source'].append(
                         fname_presuffix(imgf, prefix=prefixNorm))
 
@@ -809,13 +1185,13 @@ class Normalize12(SPMCommand):
         """Convert input to appropriate format for spm
         """
         if opt == 'tpm':
-            return scans_for_fname(filename_to_list(val))
+            return scans_for_fname(ensure_list(val))
         if opt == 'image_to_align':
-            return scans_for_fname(filename_to_list(val))
+            return scans_for_fname(ensure_list(val))
         if opt == 'apply_to_files':
-            return scans_for_fnames(filename_to_list(val))
+            return scans_for_fnames(ensure_list(val))
         if opt == 'deformation_file':
-            return np.array([list_to_filename(val)], dtype=object)
+            return np.array([simplify_list(val)], dtype=object)
         if opt in ['nonlinear_regularization']:
             if len(val) != 5:
                 raise ValueError('%s must have 5 elements' % opt)
@@ -846,10 +1222,10 @@ class Normalize12(SPMCommand):
         jobtype = self.inputs.jobtype
         if jobtype.startswith('est'):
             outputs['deformation_field'] = []
-            for imgf in filename_to_list(self.inputs.image_to_align):
+            for imgf in ensure_list(self.inputs.image_to_align):
                 outputs['deformation_field'].append(
                     fname_presuffix(imgf, prefix='y_'))
-            outputs['deformation_field'] = list_to_filename(
+            outputs['deformation_field'] = simplify_list(
                 outputs['deformation_field'])
 
         if self.inputs.jobtype == "estimate":
@@ -860,7 +1236,7 @@ class Normalize12(SPMCommand):
         elif 'write' in self.inputs.jobtype:
             outputs['normalized_files'] = []
             if isdefined(self.inputs.apply_to_files):
-                filelist = filename_to_list(self.inputs.apply_to_files)
+                filelist = ensure_list(self.inputs.apply_to_files)
                 for f in filelist:
                     if isinstance(f, list):
                         run = [fname_presuffix(in_f, prefix='w') for in_f in f]
@@ -1359,7 +1735,7 @@ class Smooth(SPMCommand):
 
     def _format_arg(self, opt, spec, val):
         if opt in ['in_files']:
-            return scans_for_fnames(filename_to_list(val))
+            return scans_for_fnames(ensure_list(val))
         if opt == 'fwhm':
             if not isinstance(val, list):
                 return [val, val, val]
@@ -1375,7 +1751,7 @@ class Smooth(SPMCommand):
         outputs = self._outputs().get()
         outputs['smoothed_files'] = []
 
-        for imgf in filename_to_list(self.inputs.in_files):
+        for imgf in ensure_list(self.inputs.in_files):
             outputs['smoothed_files'].append(
                 fname_presuffix(imgf, prefix=self.inputs.out_prefix))
         return outputs

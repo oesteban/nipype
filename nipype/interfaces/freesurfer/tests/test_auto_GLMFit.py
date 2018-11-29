@@ -21,7 +21,7 @@ def test_GLMFit_inputs():
             argstr='--X %s',
             xor=('fsgd', 'design', 'one_sample'),
         ),
-        diag=dict(),
+        diag=dict(argstr='--diag %d', ),
         diag_cluster=dict(argstr='--diag-cluster', ),
         environ=dict(
             nohash=True,
@@ -47,11 +47,6 @@ def test_GLMFit_inputs():
             genfile=True,
         ),
         hemi=dict(),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='--y %s',
             copyfile=False,
@@ -100,10 +95,6 @@ def test_GLMFit_inputs():
         ),
         surf_geo=dict(usedefault=True, ),
         synth=dict(argstr='--synth', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         uniform=dict(argstr='--uniform %f %f', ),
         var_fwhm=dict(argstr='--var-fwhm %f', ),
         vox_dump=dict(argstr='--voxdump %d %d %d', ),

@@ -10,8 +10,14 @@ def test_BEDPOSTX5_inputs():
             xor=('no_ard', 'all_ard'),
         ),
         args=dict(argstr='%s', ),
-        burn_in=dict(argstr='-b %d', ),
-        burn_in_no_ard=dict(argstr='--burninnoard=%d', ),
+        burn_in=dict(
+            argstr='-b %d',
+            usedefault=True,
+        ),
+        burn_in_no_ard=dict(
+            argstr='--burnin_noard=%d',
+            usedefault=True,
+        ),
         bvals=dict(mandatory=True, ),
         bvecs=dict(mandatory=True, ),
         cnlinear=dict(
@@ -38,11 +44,6 @@ def test_BEDPOSTX5_inputs():
         fudge=dict(argstr='-w %d', ),
         grad_dev=dict(),
         gradnonlin=dict(argstr='-g', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         logdir=dict(argstr='--logdir=%s', ),
         mask=dict(mandatory=True, ),
         model=dict(argstr='-model %d', ),
@@ -51,7 +52,10 @@ def test_BEDPOSTX5_inputs():
             mandatory=True,
             usedefault=True,
         ),
-        n_jumps=dict(argstr='-j %d', ),
+        n_jumps=dict(
+            argstr='-j %d',
+            usedefault=True,
+        ),
         no_ard=dict(
             argstr='--noard',
             xor=('no_ard', 'all_ard'),
@@ -72,13 +76,15 @@ def test_BEDPOSTX5_inputs():
         ),
         output_type=dict(),
         rician=dict(argstr='--rician', ),
-        sample_every=dict(argstr='-s %d', ),
-        seed=dict(argstr='--seed=%d', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
+        sample_every=dict(
+            argstr='-s %d',
+            usedefault=True,
         ),
-        update_proposal_every=dict(argstr='--updateproposalevery=%d', ),
+        seed=dict(argstr='--seed=%d', ),
+        update_proposal_every=dict(
+            argstr='--updateproposalevery=%d',
+            usedefault=True,
+        ),
         use_gpu=dict(),
     )
     inputs = BEDPOSTX5.input_spec()

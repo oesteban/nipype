@@ -14,7 +14,7 @@ from __future__ import (print_function, division, unicode_literals,
 
 from ... import logging
 from ..base import CommandLineInputSpec, Directory, traits
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 
 class ElastixBaseInputSpec(CommandLineInputSpec):
@@ -26,7 +26,7 @@ class ElastixBaseInputSpec(CommandLineInputSpec):
         argstr='-out %s',
         desc='output directory')
     num_threads = traits.Int(
-        1,
+        1, usedefault=True,
         argstr='-threads %01d',
         nohash=True,
         desc='set the maximum number of threads of elastix')

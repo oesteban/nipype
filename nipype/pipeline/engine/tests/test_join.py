@@ -7,11 +7,9 @@ from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
 from builtins import open
 
-import os
-
 from ... import engine as pe
 from ....interfaces import base as nib
-from ....interfaces.utility import IdentityInterface
+from ....interfaces.utility import IdentityInterface, Function, Merge
 from ....interfaces.base import traits, File
 
 
@@ -612,3 +610,52 @@ def test_nested_workflow_join(tmpdir):
     # there should be six nodes in total
     assert len(result.nodes()) == 6, \
         "The number of expanded nodes is incorrect."
+
+
+def test_name_prefix_join(tmpdir):
+    tmpdir.chdir()
+
+    def sq(x):
+        return x ** 2
+
+    wf = pe.Workflow('wf', base_dir=tmpdir.strpath)
+    square = pe.Node(Function(function=sq), name='square')
+    square.iterables = [('x', [1, 2])]
+    square_join = pe.JoinNode(Merge(1, ravel_inputs=True),
+                              name='square_join',
+                              joinsource='square',
+                              joinfield=['in1'])
+    wf.connect(square, 'out', square_join, "in1")
+    wf.run()
+
+
+def test_join_nestediters(tmpdir):
+    tmpdir.chdir()
+
+    def exponent(x, p):
+        return x ** p
+
+    wf = pe.Workflow('wf', base_dir=tmpdir.strpath)
+
+    xs = pe.Node(IdentityInterface(['x']),
+                 iterables=[('x', [1, 2])],
+                 name='xs')
+    ps = pe.Node(IdentityInterface(['p']),
+                 iterables=[('p', [3, 4])],
+                 name='ps')
+    exp = pe.Node(Function(function=exponent), name='exp')
+    exp_joinx = pe.JoinNode(Merge(1, ravel_inputs=True),
+                            name='exp_joinx',
+                            joinsource='xs',
+                            joinfield=['in1'])
+    exp_joinp = pe.JoinNode(Merge(1, ravel_inputs=True),
+                            name='exp_joinp',
+                            joinsource='ps',
+                            joinfield=['in1'])
+    wf.connect([
+        (xs, exp, [('x', 'x')]),
+        (ps, exp, [('p', 'p')]),
+        (exp, exp_joinx, [('out', 'in1')]),
+        (exp_joinx, exp_joinp, [('out', 'in1')])])
+
+    wf.run()

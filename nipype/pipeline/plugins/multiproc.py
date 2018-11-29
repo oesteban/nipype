@@ -11,7 +11,8 @@ from __future__ import (print_function, division, unicode_literals,
 
 # Import packages
 import os
-from multiprocessing import Process, Pool, cpu_count, pool
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from traceback import format_exception
 import sys
 from logging import INFO
@@ -37,7 +38,7 @@ except ImportError:
 
 
 # Init logger
-logger = logging.getLogger('workflow')
+logger = logging.getLogger('nipype.workflow')
 
 
 # Run node
@@ -74,25 +75,6 @@ def run_node(node, updatehash, taskid):
     return result
 
 
-class NonDaemonProcess(Process):
-    """A non-daemon process to support internal multiprocessing.
-    """
-
-    def _get_daemon(self):
-        return False
-
-    def _set_daemon(self, value):
-        pass
-
-    daemon = property(_get_daemon, _set_daemon)
-
-
-class NonDaemonPool(pool.Pool):
-    """A process pool with non-daemon processes.
-    """
-    Process = NonDaemonProcess
-
-
 class MultiProcPlugin(DistributedPluginBase):
     """
     Execute workflow with multiprocessing, not sending more jobs at once
@@ -113,7 +95,7 @@ class MultiProcPlugin(DistributedPluginBase):
 
     Currently supported options are:
 
-    - non_daemon : boolean flag to execute as non-daemon processes
+    - non_daemon: boolean flag to execute as non-daemon processes
     - n_procs: maximum number of threads to be executed in parallel
     - memory_gb: maximum memory (in GB) that can be used at once.
     - raise_insufficient: raise error if the requested resources for
@@ -122,8 +104,7 @@ class MultiProcPlugin(DistributedPluginBase):
     - scheduler: sort jobs topologically (``'tsort'``, default value)
         or prioritize jobs by, first, memory consumption and, second,
         number of threads (``'mem_thread'`` option).
-    - maxtasksperchild: number of nodes to run on each process before
-        refreshing the worker (default: 10).
+    - mp_context: name of multiprocessing context to use
 
     """
 
@@ -139,9 +120,7 @@ class MultiProcPlugin(DistributedPluginBase):
         self._cwd = os.getcwd()
 
         # Read in options or set defaults.
-        non_daemon = self.plugin_args.get('non_daemon', True)
-        maxtasks = self.plugin_args.get('maxtasksperchild', 10)
-        self.processors = self.plugin_args.get('n_procs', cpu_count())
+        self.processors = self.plugin_args.get('n_procs', mp.cpu_count())
         self.memory_gb = self.plugin_args.get(
             'memory_gb',  # Allocate 90% of system memory
             get_system_total_memory_gb() * 0.9)
@@ -149,30 +128,28 @@ class MultiProcPlugin(DistributedPluginBase):
                                                        True)
 
         # Instantiate different thread pools for non-daemon processes
-        logger.debug('[MultiProc] Starting in "%sdaemon" mode (n_procs=%d, '
-                     'mem_gb=%0.2f, cwd=%s)', 'non' * int(non_daemon),
+        logger.debug('[MultiProc] Starting (n_procs=%d, '
+                     'mem_gb=%0.2f, cwd=%s)',
                      self.processors, self.memory_gb, self._cwd)
 
-        NipypePool = NonDaemonPool if non_daemon else Pool
         try:
-            self.pool = NipypePool(
-                processes=self.processors,
-                maxtasksperchild=maxtasks,
-                initializer=os.chdir,
-                initargs=(self._cwd,)
-            )
-        except TypeError:
-            # Python < 3.2 does not have maxtasksperchild
-            # When maxtasksperchild is not set, initializer is not to be
-            # called
-            self.pool = NipypePool(processes=self.processors)
+            mp_context = mp.context.get_context(
+                self.plugin_args.get('mp_context'))
+            self.pool = ProcessPoolExecutor(max_workers=self.processors,
+                                            initializer=os.chdir,
+                                            initargs=(self._cwd,),
+                                            mp_context=mp_context)
+        except (AttributeError, TypeError):
+            # Python < 3.7 does not support initialization or contexts
+            self.pool = ProcessPoolExecutor(max_workers=self.processors)
 
         self._stats = None
 
     def _async_callback(self, args):
         # Make sure runtime is not left at a dubious working directory
         os.chdir(self._cwd)
-        self._taskresult[args['taskid']] = args
+        result = args.result()
+        self._taskresult[result['taskid']] = result
 
     def _get_result(self, taskid):
         return self._taskresult.get(taskid)
@@ -187,9 +164,9 @@ class MultiProcPlugin(DistributedPluginBase):
         if getattr(node.interface, 'terminal_output', '') == 'stream':
             node.interface.terminal_output = 'allatonce'
 
-        self._task_obj[self._taskid] = self.pool.apply_async(
-            run_node, (node, updatehash, self._taskid),
-            callback=self._async_callback)
+        result_future = self.pool.submit(run_node, node, updatehash, self._taskid)
+        result_future.add_done_callback(self._async_callback)
+        self._task_obj[self._taskid] = result_future
 
         logger.debug('[MultiProc] Submitted task %s (taskid=%d).',
                      node.fullname, self._taskid)
@@ -218,7 +195,7 @@ class MultiProcPlugin(DistributedPluginBase):
                 raise RuntimeError('Insufficient resources available for job')
 
     def _postrun_check(self):
-        self.pool.close()
+        self.pool.shutdown()
 
     def _check_resources(self, running_tasks):
         """

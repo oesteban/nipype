@@ -23,10 +23,7 @@ def test_Calc_inputs():
             nohash=True,
             usedefault=True,
         ),
-        eval_width=dict(
-            argstr='-eval_width %s',
-            usedefault=False,
-        ),
+        eval_width=dict(argstr='-eval_width %s', ),
         expfile=dict(
             argstr='-expfile %s',
             mandatory=True,
@@ -96,11 +93,6 @@ def test_Calc_inputs():
                  'format_int', 'format_long', 'format_float', 'format_double',
                  'format_signed', 'format_unsigned'),
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         ignore_nan=dict(argstr='-ignore_nan', ),
         input_files=dict(
             argstr='%s',
@@ -108,10 +100,7 @@ def test_Calc_inputs():
             position=-2,
             sep=' ',
         ),
-        max_buffer_size_in_kb=dict(
-            argstr='-max_buffer_size_in_kb %d',
-            usedefault=False,
-        ),
+        max_buffer_size_in_kb=dict(argstr='-max_buffer_size_in_kb %d', ),
         no_check_dimensions=dict(
             argstr='-nocheck_dimensions',
             xor=('check_dimensions', 'no_check_dimensions'),
@@ -145,10 +134,6 @@ def test_Calc_inputs():
         quiet=dict(
             argstr='-quiet',
             xor=('verbose', 'quiet'),
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
         two=dict(argstr='-2', ),
         verbose=dict(

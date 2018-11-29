@@ -10,15 +10,7 @@ def test_Normalize_inputs():
             nohash=True,
             usedefault=True,
         ),
-        gradient=dict(
-            argstr='-g %d',
-            usedefault=False,
-        ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
+        gradient=dict(argstr='-g %d', ),
         in_file=dict(
             argstr='%s',
             mandatory=True,
@@ -35,10 +27,6 @@ def test_Normalize_inputs():
         ),
         segmentation=dict(argstr='-aseg %s', ),
         subjects_dir=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         transform=dict(),
     )
     inputs = Normalize.input_spec()

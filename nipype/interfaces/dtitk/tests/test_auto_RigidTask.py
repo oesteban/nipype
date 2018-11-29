@@ -12,55 +12,38 @@ def test_RigidTask_inputs():
         ),
         fixed_file=dict(
             argstr='%s',
-            exists=True,
+            copyfile=False,
             mandatory=True,
             position=0,
         ),
         ftol=dict(
-            argstr='%s',
+            argstr='%g',
             mandatory=True,
-            position=6,
-        ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
+            position=4,
             usedefault=True,
+        ),
+        initialize_xfm=dict(
+            argstr='%s',
+            copyfile=True,
+            position=5,
         ),
         moving_file=dict(
             argstr='%s',
-            exists=True,
+            copyfile=False,
             mandatory=True,
             position=1,
         ),
-        samplingX=dict(
-            argstr='%s',
+        sampling_xyz=dict(
+            argstr='%g %g %g',
             mandatory=True,
             position=3,
-        ),
-        samplingY=dict(
-            argstr='%s',
-            mandatory=True,
-            position=4,
-        ),
-        samplingZ=dict(
-            argstr='%s',
-            mandatory=True,
-            position=5,
+            usedefault=True,
         ),
         similarity_metric=dict(
             argstr='%s',
-            exists=True,
             mandatory=True,
             position=2,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
-        useInTrans=dict(
-            argstr='%s',
-            mandatory=False,
-            position=7,
+            usedefault=True,
         ),
     )
     inputs = RigidTask.input_spec()

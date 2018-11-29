@@ -13,12 +13,12 @@ from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
 
 import os
+from inspect import isclass
 from copy import deepcopy
 from warnings import warn
 from builtins import str, bytes
 from packaging.version import Version
 
-from ...utils.misc import is_container
 from ...utils.filemanip import md5, hash_infile, hash_timestamp, to_str
 from .traits_extension import (
     traits,
@@ -151,15 +151,17 @@ class BaseTraitedSpec(traits.HasTraits):
                             '%s' % trait_spec.new_name: new
                         })
 
-    def get(self, **kwargs):
+    def trait_get(self, **kwargs):
         """ Returns traited class as a dict
 
         Augments the trait get function to return a dictionary without
         notification handles
         """
-        out = super(BaseTraitedSpec, self).get(**kwargs)
+        out = super(BaseTraitedSpec, self).trait_get(**kwargs)
         out = self._clean_container(out, Undefined)
         return out
+
+    get = trait_get
 
     def get_traitsfree(self, **kwargs):
         """ Returns traited class as a dict
@@ -168,7 +170,7 @@ class BaseTraitedSpec(traits.HasTraits):
         any traits. The dictionary does not contain any attributes that
         were Undefined
         """
-        out = super(BaseTraitedSpec, self).get(**kwargs)
+        out = super(BaseTraitedSpec, self).trait_get(**kwargs)
         out = self._clean_container(out, skipundefined=True)
         return out
 
@@ -183,8 +185,8 @@ class BaseTraitedSpec(traits.HasTraits):
                 else:
                     if not skipundefined:
                         out[key] = undefinedval
-        elif (isinstance(objekt, TraitListObject) or isinstance(objekt, list)
-              or isinstance(objekt, tuple)):
+        elif (isinstance(objekt, TraitListObject) or isinstance(objekt, list) or
+              isinstance(objekt, tuple)):
             out = []
             for val in objekt:
                 if isdefined(val):
@@ -197,6 +199,7 @@ class BaseTraitedSpec(traits.HasTraits):
             if isinstance(objekt, tuple):
                 out = tuple(out)
         else:
+            out = None
             if isdefined(objekt):
                 out = objekt
             else:
@@ -232,16 +235,15 @@ class BaseTraitedSpec(traits.HasTraits):
             The md5 hash value of the traited spec
 
         """
-
         list_withhash = []
         list_nofilename = []
-        for name, val in sorted(self.get().items()):
+        for name, val in sorted(self.trait_get().items()):
             if not isdefined(val) or self.has_metadata(name, "nohash", True):
                 # skip undefined traits and traits with nohash=True
                 continue
 
-            hash_files = (not self.has_metadata(name, "hash_files", False)
-                          and not self.has_metadata(name, "name_source"))
+            hash_files = (not self.has_metadata(name, "hash_files", False) and
+                          not self.has_metadata(name, "name_source"))
             list_nofilename.append((name,
                                     self._get_sorteddict(
                                         val,
@@ -283,9 +285,10 @@ class BaseTraitedSpec(traits.HasTraits):
             if isinstance(objekt, tuple):
                 out = tuple(out)
         else:
+            out = None
             if isdefined(objekt):
-                if (hash_files and isinstance(objekt, (str, bytes))
-                        and os.path.isfile(objekt)):
+                if (hash_files and isinstance(objekt, (str, bytes)) and
+                        os.path.isfile(objekt)):
                     if hash_method is None:
                         hash_method = config.get('execution', 'hash_method')
 
@@ -306,6 +309,10 @@ class BaseTraitedSpec(traits.HasTraits):
                     out = objekt
         return out
 
+    @property
+    def __all__(self):
+        return self.copyable_trait_names()
+
 
 class TraitedSpec(BaseTraitedSpec):
     """ Create a subclass with strict traits.
@@ -316,13 +323,7 @@ class TraitedSpec(BaseTraitedSpec):
 
 
 class BaseInterfaceInputSpec(TraitedSpec):
-    ignore_exception = traits.Bool(
-        False,
-        usedefault=True,
-        nohash=True,
-        deprecated='1.0.0',
-        desc='Print an error message instead of throwing an exception '
-        'in case the interface fails to run')
+    pass
 
 
 class DynamicTraitedSpec(BaseTraitedSpec):
@@ -339,7 +340,7 @@ class DynamicTraitedSpec(BaseTraitedSpec):
         id_self = id(self)
         if id_self in memo:
             return memo[id_self]
-        dup_dict = deepcopy(self.get(), memo)
+        dup_dict = deepcopy(self.trait_get(), memo)
         # access all keys
         for key in self.copyable_trait_names():
             if key in self.__dict__.keys():
@@ -361,21 +362,6 @@ class CommandLineInputSpec(BaseInterfaceInputSpec):
     args = traits.Str(argstr='%s', desc='Additional parameters to the command')
     environ = traits.DictStrStr(
         desc='Environment variables', usedefault=True, nohash=True)
-    # This input does not have a "usedefault=True" so the set_default_terminal_output()
-    # method would work
-    terminal_output = traits.Enum(
-        'stream',
-        'allatonce',
-        'file',
-        'none',
-        deprecated='1.0.0',
-        desc=('Control terminal output: `stream` - '
-              'displays to terminal immediately (default), '
-              '`allatonce` - waits till command is '
-              'finished to display output, `file` - '
-              'writes output to file, `none` - output'
-              ' is ignored'),
-        nohash=True)
 
 
 class StdOutCommandLineInputSpec(CommandLineInputSpec):
@@ -390,3 +376,21 @@ class MpiCommandLineInputSpec(CommandLineInputSpec):
     n_procs = traits.Int(desc="Num processors to specify to mpiexec. Do not "
                          "specify if this is managed externally (e.g. through "
                          "SGE)")
+
+
+def get_filecopy_info(cls):
+    """Provides information about file inputs to copy or link to cwd.
+    Necessary for pipeline operation
+    """
+    if cls.input_spec is None:
+        return None
+
+    # normalize_filenames is not a classmethod, hence check first
+    if not isclass(cls) and hasattr(cls, 'normalize_filenames'):
+        cls.normalize_filenames()
+    info = []
+    inputs = cls.input_spec() if isclass(cls) else cls.inputs
+    metadata = dict(copyfile=lambda t: t is not None)
+    for name, spec in sorted(inputs.traits(**metadata).items()):
+        info.append(dict(key=name, copy=spec.copyfile))
+    return info

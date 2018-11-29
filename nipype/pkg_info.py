@@ -49,12 +49,12 @@ def pkg_commit_hash(pkg_path):
     pth = os.path.join(pkg_path, COMMIT_INFO_FNAME)
     if not os.path.isfile(pth):
         raise IOError('Missing commit info file %s' % pth)
-    if PY3:
-        cfg_parser = configparser.RawConfigParser()
-    else:
-        cfg_parser = configparser.ConfigParser()
+    cfg_parser = configparser.RawConfigParser()
     with open(pth, encoding='utf-8') as fp:
-        cfg_parser.readfp(fp)
+        if sys.version_info >= (3, 2):
+            cfg_parser.read_file(fp)
+        else:
+            cfg_parser.readfp(fp)
     archive_subst = cfg_parser.get('commit hash', 'archive_subst_hash')
     if not archive_subst.startswith('$Format'):  # it has been substituted
         return 'archive substitution', archive_subst

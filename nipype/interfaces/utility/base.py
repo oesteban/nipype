@@ -20,9 +20,9 @@ import nibabel as nb
 
 from ..base import (traits, TraitedSpec, DynamicTraitedSpec, File, Undefined,
                     isdefined, OutputMultiPath, InputMultiPath, BaseInterface,
-                    BaseInterfaceInputSpec, Str)
+                    BaseInterfaceInputSpec, Str, SimpleInterface)
 from ..io import IOBase, add_traits
-from ...utils.filemanip import filename_to_list, copyfile, split_filename
+from ...utils.filemanip import ensure_list, copyfile, split_filename
 
 
 class IdentityInterface(IOBase):
@@ -197,14 +197,13 @@ class Merge(IOBase):
                 else:
                     out.append(value)
         else:
-            lists = [filename_to_list(val) for val in values]
+            lists = [ensure_list(val) for val in values]
             out = [[val[i] for val in lists] for i in range(len(lists[0]))]
         outputs['out'] = out
         return outputs
 
 
 class RenameInputSpec(DynamicTraitedSpec):
-
     in_file = File(exists=True, mandatory=True, desc="file to rename")
     keep_ext = traits.Bool(
         desc=("Keep in_file extension, replace "
@@ -218,12 +217,11 @@ class RenameInputSpec(DynamicTraitedSpec):
 
 
 class RenameOutputSpec(TraitedSpec):
-
     out_file = traits.File(
         exists=True, desc="softlink to original file with new name")
 
 
-class Rename(IOBase):
+class Rename(SimpleInterface, IOBase):
     """Change the name of a file based on a mapped format string.
 
     To use additional inputs that will be defined at run-time, the class
@@ -303,14 +301,10 @@ class Rename(IOBase):
 
     def _run_interface(self, runtime):
         runtime.returncode = 0
-        _ = copyfile(self.inputs.in_file,
-                     os.path.join(os.getcwd(), self._rename()))
+        out_file = os.path.join(runtime.cwd, self._rename())
+        _ = copyfile(self.inputs.in_file, out_file)
+        self._results['out_file'] = out_file
         return runtime
-
-    def _list_outputs(self):
-        outputs = self._outputs().get()
-        outputs["out_file"] = os.path.join(os.getcwd(), self._rename())
-        return outputs
 
 
 class SplitInputSpec(BaseInterfaceInputSpec):

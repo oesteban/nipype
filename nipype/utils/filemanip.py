@@ -2,14 +2,6 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """Miscellaneous file manipulation functions
-
-  .. testsetup::
-    # Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname(os.path.realpath( __file__ ))
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../testing/data'))
-    >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -26,6 +18,7 @@ import os
 import os.path as op
 import re
 import shutil
+import contextlib
 import posixpath
 import simplejson as json
 import numpy as np
@@ -37,7 +30,7 @@ from .misc import is_container
 from future import standard_library
 standard_library.install_aliases()
 
-fmlogger = logging.getLogger('utils')
+fmlogger = logging.getLogger('nipype.utils')
 
 related_filetype_sets = [
     ('.hdr', '.img', '.mat'),
@@ -45,6 +38,7 @@ related_filetype_sets = [
     ('.BRIK', '.HEAD'),
 ]
 
+PY3 = sys.version_info[0] >= 3
 
 class FileNotFoundError(Exception):
     pass
@@ -82,7 +76,7 @@ def split_filename(fname):
 
     """
 
-    special_extensions = [".nii.gz", ".tar.gz"]
+    special_extensions = [".nii.gz", ".tar.gz", ".niml.dset"]
 
     pth = op.dirname(fname)
     fname = op.basename(fname)
@@ -185,7 +179,8 @@ def fname_presuffix(fname, prefix='', suffix='', newpath=None, use_ext=True):
     '/tmp/prefoopost.nii.gz'
 
     >>> from nipype.interfaces.base import Undefined
-    >>> fname_presuffix(fname, 'pre', 'post', Undefined) == fname_presuffix(fname, 'pre', 'post')
+    >>> fname_presuffix(fname, 'pre', 'post', Undefined) == \
+            fname_presuffix(fname, 'pre', 'post')
     True
 
     """
@@ -235,7 +230,7 @@ def hash_infile(afile, chunk_len=8192, crypto=hashlib.md5,
     Computes hash of a file using 'crypto' module
 
     >>> hash_infile('smri_ants_registration_settings.json')
-    '49b956387ed8d95a4eb44576fc5103b6'
+    'f225785dfb0db9032aa5a0e4f2c730ad'
 
     >>> hash_infile('surf01.vtk')
     'fdf1cf359b4e346034372cdeb58f9a88'
@@ -275,6 +270,45 @@ def hash_timestamp(afile):
     return md5hex
 
 
+def _parse_mount_table(exit_code, output):
+    """Parses the output of ``mount`` to produce (path, fs_type) pairs
+
+    Separated from _generate_cifs_table to enable testing logic with real
+    outputs
+    """
+    # Not POSIX
+    if exit_code != 0:
+        return []
+
+    # Linux mount example:  sysfs on /sys type sysfs (rw,nosuid,nodev,noexec)
+    #                          <PATH>^^^^      ^^^^^<FSTYPE>
+    # OSX mount example:    /dev/disk2 on / (hfs, local, journaled)
+    #                               <PATH>^  ^^^<FSTYPE>
+    pattern = re.compile(r'.*? on (/.*?) (?:type |\()([^\s,\)]+)')
+
+    # Keep line and match for error reporting (match == None on failure)
+    # Ignore empty lines
+    matches = [(l, pattern.match(l))
+               for l in output.strip().splitlines() if l]
+
+    # (path, fstype) tuples, sorted by path length (longest first)
+    mount_info = sorted((match.groups() for _, match in matches
+                         if match is not None),
+                        key=lambda x: len(x[0]), reverse=True)
+    cifs_paths = [path for path, fstype in mount_info
+                  if fstype.lower() == 'cifs']
+
+    # Report failures as warnings
+    for line, match in matches:
+        if match is None:
+            fmlogger.debug("Cannot parse mount line: '%s'", line)
+
+    return [
+        mount for mount in mount_info
+        if any(mount[0].startswith(path) for path in cifs_paths)
+    ]
+
+
 def _generate_cifs_table():
     """Construct a reverse-length-ordered list of mount points that
     fall under a CIFS mount.
@@ -286,21 +320,7 @@ def _generate_cifs_table():
     empty list.
     """
     exit_code, output = sp.getstatusoutput("mount")
-    # Not POSIX
-    if exit_code != 0:
-        return []
-
-    # (path, fstype) tuples, sorted by path length (longest first)
-    mount_info = sorted(
-        (line.split()[2:5:2] for line in output.splitlines()),
-        key=lambda x: len(x[0]),
-        reverse=True)
-    cifs_paths = [path for path, fstype in mount_info if fstype == 'cifs']
-
-    return [
-        mount for mount in mount_info
-        if any(mount[0].startswith(path) for path in cifs_paths)
-    ]
+    return _parse_mount_table(exit_code, output)
 
 
 _cifs_table = _generate_cifs_table()
@@ -409,6 +429,8 @@ def copyfile(originalfile,
                 hashfn = hash_timestamp
             elif hashmethod == 'content':
                 hashfn = hash_infile
+            else:
+                raise AttributeError("Unknown hash method found:", hashmethod)
             newhash = hashfn(newfile)
             fmlogger.debug('File: %s already exists,%s, copy:%d', newfile,
                            newhash, copy)
@@ -449,7 +471,7 @@ def copyfile(originalfile,
             fmlogger.debug('Copying File: %s->%s', newfile, originalfile)
             shutil.copyfile(originalfile, newfile)
         except shutil.Error as e:
-            fmlogger.warn(e.message)
+            fmlogger.warning(e.message)
 
     # Associated files
     if copy_related_files:
@@ -512,9 +534,9 @@ def copyfiles(filelist, dest, copy=False, create_new=False):
     None
 
     """
-    outfiles = filename_to_list(dest)
+    outfiles = ensure_list(dest)
     newfiles = []
-    for i, f in enumerate(filename_to_list(filelist)):
+    for i, f in enumerate(ensure_list(filelist)):
         if isinstance(f, list):
             newfiles.insert(i,
                             copyfiles(
@@ -529,7 +551,7 @@ def copyfiles(filelist, dest, copy=False, create_new=False):
     return newfiles
 
 
-def filename_to_list(filename):
+def ensure_list(filename):
     """Returns a list given either a string or a list
     """
     if isinstance(filename, (str, bytes)):
@@ -542,7 +564,7 @@ def filename_to_list(filename):
         return None
 
 
-def list_to_filename(filelist):
+def simplify_list(filelist):
     """Returns a list if filelist is a list of length greater than 1,
        otherwise returns the first element
     """
@@ -552,13 +574,17 @@ def list_to_filename(filelist):
         return filelist[0]
 
 
+filename_to_list = ensure_list
+list_to_filename = simplify_list
+
+
 def check_depends(targets, dependencies):
     """Return true if all targets exist and are newer than all dependencies.
 
     An OSError will be raised if there are missing dependencies.
     """
-    tgts = filename_to_list(targets)
-    deps = filename_to_list(dependencies)
+    tgts = ensure_list(targets)
+    deps = ensure_list(dependencies)
     return all(map(op.exists, tgts)) and \
         min(map(op.getmtime, tgts)) > \
         max(list(map(op.getmtime, deps)) + [0])
@@ -602,23 +628,13 @@ def load_json(filename):
 
 
 def loadcrash(infile, *args):
-    if '.pkl' in infile:
-        return loadpkl(infile)
-    elif '.npz' in infile:
-        DeprecationWarning(('npz files will be deprecated in the next '
-                            'release. you can use numpy to open them.'))
-        data = np.load(infile)
-        out = {}
-        for k in data.files:
-            out[k] = [f for f in data[k].flat]
-            if len(out[k]) == 1:
-                out[k] = out[k].pop()
-        return out
+    if infile.endswith('pkl') or infile.endswith('pklz'):
+        return loadpkl(infile, versioning=True)
     else:
         raise ValueError('Only pickled crashfiles are supported')
 
 
-def loadpkl(infile):
+def loadpkl(infile, versioning=False):
     """Load a zipped or plain cPickled file
     """
     fmlogger.debug('Loading pkl: %s', infile)
@@ -627,11 +643,44 @@ def loadpkl(infile):
     else:
         pkl_file = open(infile, 'rb')
 
+    if versioning:
+        pkl_metadata = {}
+
+        # Look if pkl file contains version file
+        try:
+            pkl_metadata_line = pkl_file.readline()
+            pkl_metadata = json.loads(pkl_metadata_line)
+        except:
+            # Could not get version info
+            pkl_file.seek(0)
+
     try:
-        unpkl = pickle.load(pkl_file)
-    except UnicodeDecodeError:
-        unpkl = pickle.load(pkl_file, fix_imports=True, encoding='utf-8')
-    return unpkl
+        try:
+            unpkl = pickle.load(pkl_file)
+        except UnicodeDecodeError:
+            unpkl = pickle.load(pkl_file, fix_imports=True, encoding='utf-8')
+
+        return unpkl
+
+    # Unpickling problems
+    except Exception as e:
+        if not versioning:
+            raise e
+
+        from nipype import __version__ as version
+
+        if 'version' in pkl_metadata:
+            if pkl_metadata['version'] != version:
+                fmlogger.error('Your Nipype version is: %s',
+                               version)
+                fmlogger.error('Nipype version of the pkl is: %s',
+                               pkl_metadata['version'])
+        else:
+            fmlogger.error('No metadata was found in the pkl file.')
+            fmlogger.error('Make sure that you are using the same Nipype'
+                           'version from the generated pkl.')
+
+        raise e
 
 
 def crash2txt(filename, record):
@@ -666,11 +715,19 @@ def read_stream(stream, logger=None, encoding=None):
     return out.splitlines()
 
 
-def savepkl(filename, record):
+def savepkl(filename, record, versioning=False):
     if filename.endswith('pklz'):
         pkl_file = gzip.open(filename, 'wb')
     else:
         pkl_file = open(filename, 'wb')
+
+    if versioning:
+        from nipype import __version__ as version
+        metadata = json.dumps({'version': version})
+
+        pkl_file.write(metadata.encode('utf-8'))
+        pkl_file.write('\n'.encode('utf-8'))
+
     pickle.dump(record, pkl_file)
     pkl_file.close()
 
@@ -763,8 +820,8 @@ def emptydirs(path, noexist_ok=False):
         elcont = os.listdir(path)
         if ex.errno == errno.ENOTEMPTY and not elcont:
             fmlogger.warning(
-                'An exception was raised trying to remove old %s, but the path '
-                'seems empty. Is it an NFS mount?. Passing the exception.',
+                'An exception was raised trying to remove old %s, but the path'
+                ' seems empty. Is it an NFS mount?. Passing the exception.',
                 path)
         elif ex.errno == errno.ENOTEMPTY and elcont:
             fmlogger.debug('Folder %s contents (%d items).', path, len(elcont))
@@ -862,12 +919,18 @@ def canonicalize_env(env):
     if os.name != 'nt':
         return env
 
+    # convert unicode to string for python 2
+    if not PY3:
+        from future.utils import bytes_to_native_str
     out_env = {}
     for key, val in env.items():
         if not isinstance(key, bytes):
             key = key.encode('utf-8')
         if not isinstance(val, bytes):
             val = val.encode('utf-8')
+        if not PY3:
+            key = bytes_to_native_str(key)
+            val = bytes_to_native_str(val)
         out_env[key] = val
     return out_env
 
@@ -906,3 +969,13 @@ def relpath(path, start=None):
     if not rel_list:
         return os.curdir
     return op.join(*rel_list)
+
+
+@contextlib.contextmanager
+def indirectory(path):
+    cwd = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(cwd)

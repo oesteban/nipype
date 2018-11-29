@@ -5,14 +5,6 @@
 """Defines functionality for pipelined execution of interfaces
 
 The `EngineBase` class implements the more general view of a task.
-
-  .. testsetup::
-     # Change directory to provide relative paths for doctests
-     import os
-     filepath = os.path.dirname(os.path.realpath( __file__ ))
-     datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-     os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -44,11 +36,11 @@ class EngineBase(object):
 
         """
         self._hierarchy = None
-        self._name = None
+        self.name = name
+        self._id = self.name # for compatibility with node expansion using iterables
 
         self.base_dir = base_dir
         self.config = deepcopy(config._sections)
-        self.name = name
 
     @property
     def name(self):
@@ -74,6 +66,14 @@ class EngineBase(object):
     def outputs(self):
         raise NotImplementedError
 
+    @property
+    def itername(self):
+        """Name for expanded iterable"""
+        itername = self._id
+        if self._hierarchy:
+            itername = '%s.%s' % (self._hierarchy, self._id)
+        return itername
+
     def clone(self, name):
         """Clone an EngineBase object
 
@@ -84,9 +84,12 @@ class EngineBase(object):
             A clone of node or workflow must have a new name
         """
         if name == self.name:
-            raise ValueError('Cloning requires a new name, "%s" is in use.' % name)
+            raise ValueError('Cloning requires a new name, "%s" is '
+                             'in use.' % name)
         clone = deepcopy(self)
         clone.name = name
+        if hasattr(clone, '_id'):
+            clone._id = name
         return clone
 
     def _check_outputs(self, parameter):
@@ -100,14 +103,13 @@ class EngineBase(object):
     def __str__(self):
         return self.fullname
 
+    def __repr__(self):
+        return self.itername
+
     def save(self, filename=None):
         if filename is None:
             filename = 'temp.pklz'
         savepkl(filename, self)
 
     def load(self, filename):
-        if '.npz' in filename:
-            DeprecationWarning(('npz files will be deprecated in the next '
-                                'release. you can use numpy to open them.'))
-            return np.load(filename)
         return loadpkl(filename)

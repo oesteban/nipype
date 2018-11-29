@@ -17,39 +17,37 @@ from __future__ import (print_function, division, unicode_literals,
 
 from builtins import object, open, str, bytes
 
-import gc
 from copy import deepcopy
 from datetime import datetime as dt
-import errno
 import os
-import re
 import platform
-import select
 import subprocess as sp
 import shlex
 import sys
-from textwrap import wrap
 import simplejson as json
 from dateutil.parser import parse as parseutc
+from future import standard_library
 
 from ... import config, logging, LooseVersion
 from ...utils.provenance import write_provenance
-from ...utils.misc import trim, str2bool, rgetcwd
-from ...utils.filemanip import (FileNotFoundError, split_filename, read_stream,
-                                which, get_dependencies, canonicalize_env as
-                                _canonicalize_env)
+from ...utils.misc import str2bool, rgetcwd
+from ...utils.filemanip import (FileNotFoundError, split_filename,
+                                which, get_dependencies)
+from ...utils.subprocess import run_command
 
 from ...external.due import due
 
 from .traits_extension import traits, isdefined, TraitError
 from .specs import (BaseInterfaceInputSpec, CommandLineInputSpec,
-                    StdOutCommandLineInputSpec, MpiCommandLineInputSpec)
-from .support import (Bunch, Stream, InterfaceResult, NipypeInterfaceError)
+                    StdOutCommandLineInputSpec, MpiCommandLineInputSpec,
+                    get_filecopy_info)
 
-from future import standard_library
+from .support import (Bunch, InterfaceResult, NipypeInterfaceError,
+                      format_help)
+
 standard_library.install_aliases()
 
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 PY35 = sys.version_info >= (3, 5)
 PY3 = sys.version_info[0] > 2
@@ -70,38 +68,24 @@ class Interface(object):
 
     input_spec = None  # A traited input specification
     output_spec = None  # A traited output specification
-
-    # defines if the interface can reuse partial results after interruption
-    _can_resume = False
+    _can_resume = False  # See property below
+    _always_run = False  # See property below
 
     @property
     def can_resume(self):
+        """Defines if the interface can reuse partial results after interruption.
+        Only applies to interfaces being run within a workflow context."""
         return self._can_resume
-
-    # should the interface be always run even if the inputs were not changed?
-    _always_run = False
 
     @property
     def always_run(self):
+        """Should the interface be always run even if the inputs were not changed?
+        Only applies to interfaces being run within a workflow context."""
         return self._always_run
 
-    def __init__(self, **inputs):
-        """Initialize command with given args and inputs."""
-        raise NotImplementedError
-
-    @classmethod
-    def help(cls):
-        """ Prints class help"""
-        raise NotImplementedError
-
-    @classmethod
-    def _inputs_help(cls):
-        """ Prints inputs help"""
-        raise NotImplementedError
-
-    @classmethod
-    def _outputs_help(cls):
-        """ Prints outputs help"""
+    @property
+    def version(self):
+        """interfaces should implement a version property"""
         raise NotImplementedError
 
     @classmethod
@@ -109,8 +93,17 @@ class Interface(object):
         """ Initializes outputs"""
         raise NotImplementedError
 
-    @property
-    def version(self):
+    @classmethod
+    def help(cls, returnhelp=False):
+        """ Prints class help """
+        allhelp = format_help(cls)
+        if returnhelp:
+            return allhelp
+        print(allhelp)
+        return None  # R1710
+
+    def __init__(self):
+        """Subclasses must implement __init__"""
         raise NotImplementedError
 
     def run(self):
@@ -125,11 +118,15 @@ class Interface(object):
         """ List expected outputs"""
         raise NotImplementedError
 
-    def _get_filecopy_info(self):
-        """ Provides information about file inputs to copy or link to cwd.
-            Necessary for pipeline operation
+    @classmethod
+    def _get_filecopy_info(cls):
+        """Provides information about file inputs to copy or link to cwd.
+        Necessary for pipeline operation
         """
-        raise NotImplementedError
+        iflogger.warning(
+            '_get_filecopy_info member of Interface was deprecated '
+            'in nipype-1.1.6 and will be removed in 1.2.0')
+        return get_filecopy_info(cls)
 
 
 class BaseInterface(Interface):
@@ -188,142 +185,6 @@ class BaseInterface(Interface):
             for name, value in list(inputs.items()):
                 setattr(self.inputs, name, value)
 
-    @classmethod
-    def help(cls, returnhelp=False):
-        """ Prints class help
-        """
-
-        if cls.__doc__:
-            # docstring = cls.__doc__.split('\n')
-            # docstring = [trim(line, '') for line in docstring]
-            docstring = trim(cls.__doc__).split('\n') + ['']
-        else:
-            docstring = ['']
-
-        allhelp = '\n'.join(docstring + cls._inputs_help(
-        ) + [''] + cls._outputs_help() + [''] + cls._refs_help() + [''])
-        if returnhelp:
-            return allhelp
-        else:
-            print(allhelp)
-
-    @classmethod
-    def _refs_help(cls):
-        """ Prints interface references.
-        """
-        if not cls.references_:
-            return []
-
-        helpstr = ['References::']
-
-        for r in cls.references_:
-            helpstr += ['{}'.format(r['entry'])]
-
-        return helpstr
-
-    @classmethod
-    def _get_trait_desc(self, inputs, name, spec):
-        desc = spec.desc
-        xor = spec.xor
-        requires = spec.requires
-        argstr = spec.argstr
-
-        manhelpstr = ['\t%s' % name]
-
-        type_info = spec.full_info(inputs, name, None)
-
-        default = ''
-        if spec.usedefault:
-            default = ', nipype default value: %s' % str(
-                spec.default_value()[1])
-        line = "(%s%s)" % (type_info, default)
-
-        manhelpstr = wrap(
-            line,
-            70,
-            initial_indent=manhelpstr[0] + ': ',
-            subsequent_indent='\t\t ')
-
-        if desc:
-            for line in desc.split('\n'):
-                line = re.sub("\s+", " ", line)
-                manhelpstr += wrap(
-                    line, 70, initial_indent='\t\t', subsequent_indent='\t\t')
-
-        if argstr:
-            pos = spec.position
-            if pos is not None:
-                manhelpstr += wrap(
-                    'flag: %s, position: %s' % (argstr, pos),
-                    70,
-                    initial_indent='\t\t',
-                    subsequent_indent='\t\t')
-            else:
-                manhelpstr += wrap(
-                    'flag: %s' % argstr,
-                    70,
-                    initial_indent='\t\t',
-                    subsequent_indent='\t\t')
-
-        if xor:
-            line = '%s' % ', '.join(xor)
-            manhelpstr += wrap(
-                line,
-                70,
-                initial_indent='\t\tmutually_exclusive: ',
-                subsequent_indent='\t\t ')
-
-        if requires:
-            others = [field for field in requires if field != name]
-            line = '%s' % ', '.join(others)
-            manhelpstr += wrap(
-                line,
-                70,
-                initial_indent='\t\trequires: ',
-                subsequent_indent='\t\t ')
-        return manhelpstr
-
-    @classmethod
-    def _inputs_help(cls):
-        """ Prints description for input parameters
-        """
-        helpstr = ['Inputs::']
-
-        inputs = cls.input_spec()
-        if len(list(inputs.traits(transient=None).items())) == 0:
-            helpstr += ['', '\tNone']
-            return helpstr
-
-        manhelpstr = ['', '\t[Mandatory]']
-        mandatory_items = inputs.traits(mandatory=True)
-        for name, spec in sorted(mandatory_items.items()):
-            manhelpstr += cls._get_trait_desc(inputs, name, spec)
-
-        opthelpstr = ['', '\t[Optional]']
-        for name, spec in sorted(inputs.traits(transient=None).items()):
-            if name in mandatory_items:
-                continue
-            opthelpstr += cls._get_trait_desc(inputs, name, spec)
-
-        if manhelpstr:
-            helpstr += manhelpstr
-        if opthelpstr:
-            helpstr += opthelpstr
-        return helpstr
-
-    @classmethod
-    def _outputs_help(cls):
-        """ Prints description for output parameters
-        """
-        helpstr = ['Outputs::', '']
-        if cls.output_spec:
-            outputs = cls.output_spec()
-            for name, spec in sorted(outputs.traits(transient=None).items()):
-                helpstr += cls._get_trait_desc(outputs, name, spec)
-        if len(helpstr) == 2:
-            helpstr += ['\tNone']
-        return helpstr
-
     def _outputs(self):
         """ Returns a bunch containing output fields for the class
         """
@@ -332,19 +193,6 @@ class BaseInterface(Interface):
             outputs = self.output_spec()
 
         return outputs
-
-    @classmethod
-    def _get_filecopy_info(cls):
-        """ Provides information about file inputs to copy or link to cwd.
-            Necessary for pipeline operation
-        """
-        info = []
-        if cls.input_spec is None:
-            return info
-        metadata = dict(copyfile=lambda t: t is not None)
-        for name, spec in sorted(cls.input_spec().traits(**metadata).items()):
-            info.append(dict(key=name, copy=spec.copyfile))
-        return info
 
     def _check_requires(self, spec, name, value):
         """ check if required inputs are satisfied
@@ -445,7 +293,7 @@ class BaseInterface(Interface):
             r['path'] = self.__module__
             due.cite(**r)
 
-    def run(self, cwd=None, **inputs):
+    def run(self, cwd=None, ignore_exception=None, **inputs):
         """Execute this interface.
 
         This interface will not raise an exception if runtime.returncode is
@@ -463,6 +311,10 @@ class BaseInterface(Interface):
         that was executed, provenance information and, if successful, results
         """
         from ...utils.profiler import ResourceMonitor
+
+        # if ignore_exception is not provided, taking self.ignore_exception
+        if ignore_exception is None:
+            ignore_exception = self.ignore_exception
 
         # Tear-up: get current and prev directories
         syscwd = rgetcwd(error=False)  # Recover when wd does not exist
@@ -496,6 +348,7 @@ class BaseInterface(Interface):
             platform=platform.platform(),
             hostname=platform.node(),
             version=self.version)
+        runtime_attrs = set(runtime.dictcopy())
 
         mon_sp = None
         if enable_rm:
@@ -513,7 +366,9 @@ class BaseInterface(Interface):
         outputs = None
 
         try:
+            runtime = self._pre_run_hook(runtime)
             runtime = self._run_interface(runtime)
+            runtime = self._post_run_hook(runtime)
             outputs = self.aggregate_outputs(runtime)
         except Exception as e:
             import traceback
@@ -531,9 +386,13 @@ class BaseInterface(Interface):
             runtime.traceback_args = ('\n'.join(
                 ['%s' % arg for arg in exc_args]), )
 
-            if not self.ignore_exception:
+            if not ignore_exception:
                 raise
         finally:
+            if runtime is None or runtime_attrs - set(runtime.dictcopy()):
+                raise RuntimeError("{} interface failed to return valid "
+                                   "runtime object".format(
+                                       interface.__class__.__name__))
             # This needs to be done always
             runtime.endTime = dt.isoformat(dt.utcnow())
             timediff = parseutc(runtime.endTime) - parseutc(runtime.startTime)
@@ -645,9 +504,31 @@ class BaseInterface(Interface):
         A convenient way to save current inputs to a JSON file.
         """
         inputs = self.inputs.get_traitsfree()
-        iflogger.debug('saving inputs {}', inputs)
+        iflogger.debug('saving inputs %s', inputs)
         with open(json_file, 'w' if PY3 else 'wb') as fhandle:
             json.dump(inputs, fhandle, indent=4, ensure_ascii=False)
+
+    def _pre_run_hook(self, runtime):
+        """
+        Perform any pre-_run_interface() processing
+
+        Subclasses may override this function to modify ``runtime`` object or
+        interface state
+
+        MUST return runtime object
+        """
+        return runtime
+
+    def _post_run_hook(self, runtime):
+        """
+        Perform any post-_run_interface() processing
+
+        Subclasses may override this function to modify ``runtime`` object or
+        interface state
+
+        MUST return runtime object
+        """
+        return runtime
 
 
 class SimpleInterface(BaseInterface):
@@ -664,13 +545,8 @@ class SimpleInterface(BaseInterface):
     Examples
     --------
 
-    .. testsetup::
-
-    >>> from .specs import TraitedSpec
-    >>> tmp = getfixture('tmpdir')
-    >>> old = tmp.chdir() # changing to a temporary directory
-
-    .. doctest::
+    >>> from nipype.interfaces.base import (
+    ...     SimpleInterface, BaseInterfaceInputSpec, TraitedSpec)
 
     >>> def double(x):
     ...    return 2 * x
@@ -693,11 +569,6 @@ class SimpleInterface(BaseInterface):
     >>> dbl.inputs.x = 2
     >>> dbl.run().outputs.doubled
     4.0
-
-    .. testsetup::
-
-    >>> os.chdir(old.strpath)
-
     """
 
     def __init__(self, from_file=None, resource_monitor=None, **inputs):
@@ -707,135 +578,6 @@ class SimpleInterface(BaseInterface):
 
     def _list_outputs(self):
         return self._results
-
-
-def run_command(runtime, output=None, timeout=0.01):
-    """Run a command, read stdout and stderr, prefix with timestamp.
-
-    The returned runtime contains a merged stdout+stderr log with timestamps
-    """
-
-    # Init variables
-    cmdline = runtime.cmdline
-    env = _canonicalize_env(runtime.environ)
-
-    errfile = None
-    outfile = None
-    stdout = sp.PIPE
-    stderr = sp.PIPE
-
-    if output == 'file':
-        outfile = os.path.join(runtime.cwd, 'output.nipype')
-        stdout = open(outfile, 'wb')  # t=='text'===default
-        stderr = sp.STDOUT
-    elif output == 'file_split':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
-    elif output == 'file_stdout':
-        outfile = os.path.join(runtime.cwd, 'stdout.nipype')
-        stdout = open(outfile, 'wb')
-    elif output == 'file_stderr':
-        errfile = os.path.join(runtime.cwd, 'stderr.nipype')
-        stderr = open(errfile, 'wb')
-
-    proc = sp.Popen(
-        cmdline,
-        stdout=stdout,
-        stderr=stderr,
-        shell=True,
-        cwd=runtime.cwd,
-        env=env,
-        close_fds=True,
-    )
-
-    result = {
-        'stdout': [],
-        'stderr': [],
-        'merged': [],
-    }
-
-    if output == 'stream':
-        streams = [
-            Stream('stdout', proc.stdout),
-            Stream('stderr', proc.stderr)
-        ]
-
-        def _process(drain=0):
-            try:
-                res = select.select(streams, [], [], timeout)
-            except select.error as e:
-                iflogger.info(e)
-                if e[0] == errno.EINTR:
-                    return
-                else:
-                    raise
-            else:
-                for stream in res[0]:
-                    stream.read(drain)
-
-        while proc.returncode is None:
-            proc.poll()
-            _process()
-
-        _process(drain=1)
-
-        # collect results, merge and return
-        result = {}
-        temp = []
-        for stream in streams:
-            rows = stream._rows
-            temp += rows
-            result[stream._name] = [r[2] for r in rows]
-        temp.sort()
-        result['merged'] = [r[1] for r in temp]
-
-    if output.startswith('file'):
-        proc.wait()
-        if outfile is not None:
-            stdout.flush()
-            stdout.close()
-            with open(outfile, 'rb') as ofh:
-                stdoutstr = ofh.read()
-            result['stdout'] = read_stream(stdoutstr, logger=iflogger)
-            del stdoutstr
-
-        if errfile is not None:
-            stderr.flush()
-            stderr.close()
-            with open(errfile, 'rb') as efh:
-                stderrstr = efh.read()
-            result['stderr'] = read_stream(stderrstr, logger=iflogger)
-            del stderrstr
-
-        if output == 'file':
-            result['merged'] = result['stdout']
-            result['stdout'] = []
-    else:
-        stdout, stderr = proc.communicate()
-        if output == 'allatonce':  # Discard stdout and stderr otherwise
-            result['stdout'] = read_stream(stdout, logger=iflogger)
-            result['stderr'] = read_stream(stderr, logger=iflogger)
-
-    runtime.returncode = proc.returncode
-    try:
-        proc.terminate()  # Ensure we are done
-    except OSError as error:
-        # Python 2 raises when the process is already gone
-        if error.errno != errno.ESRCH:
-            raise
-
-    # Dereference & force GC for a cleanup
-    del proc
-    del stdout
-    del stderr
-    gc.collect()
-
-    runtime.stderr = '\n'.join(result['stderr'])
-    runtime.stdout = '\n'.join(result['stdout'])
-    runtime.merged = '\n'.join(result['merged'])
-    return runtime
 
 
 class CommandLine(BaseInterface):
@@ -864,8 +606,7 @@ class CommandLine(BaseInterface):
     # Use get_traitsfree() to check all inputs set
     >>> pprint.pprint(cli.inputs.get_traitsfree())  # doctest:
     {'args': '-al',
-     'environ': {'DISPLAY': ':1'},
-     'ignore_exception': False}
+     'environ': {'DISPLAY': ':1'}}
 
     >>> cli.inputs.get_hashval()[0][0]
     ('args', '-al')
@@ -895,14 +636,6 @@ class CommandLine(BaseInterface):
             raise AttributeError(
                 'Invalid terminal output_type: %s' % output_type)
 
-    @classmethod
-    def help(cls, returnhelp=False):
-        allhelp = 'Wraps command **{cmd}**\n\n{help}'.format(
-            cmd=cls._cmd, help=super(CommandLine, cls).help(returnhelp=True))
-        if returnhelp:
-            return allhelp
-        print(allhelp)
-
     def __init__(self, command=None, terminal_output=None, **inputs):
         super(CommandLine, self).__init__(**inputs)
         self._environ = None
@@ -919,13 +652,13 @@ class CommandLine(BaseInterface):
         if terminal_output is not None:
             self.terminal_output = terminal_output
 
-        # Attach terminal_output callback for backwards compatibility
-        self.inputs.on_trait_change(self._terminal_output_update,
-                                    'terminal_output')
-
     @property
     def cmd(self):
         """sets base command, immutable"""
+        if not self._cmd:
+            raise NotImplementedError(
+                'CommandLineInterface should wrap an executable, but '
+                'none has been set.')
         return self._cmd
 
     @property
@@ -949,9 +682,6 @@ class CommandLine(BaseInterface):
                          ', '.join(['"%s"' % v
                                     for v in VALID_TERMINAL_OUTPUT])))
         self._terminal_output = value
-
-    def _terminal_output_update(self):
-        self.terminal_output = self.terminal_output
 
     def raise_exception(self, runtime):
         raise RuntimeError(
@@ -1072,6 +802,17 @@ class CommandLine(BaseInterface):
         if not isdefined(retval) or "%s" in retval:
             if not trait_spec.name_source:
                 return retval
+
+            # Do not generate filename when excluded by other inputs
+            if any(isdefined(getattr(self.inputs, field))
+                   for field in trait_spec.xor or ()):
+                return retval
+
+            # Do not generate filename when required fields are missing
+            if not all(isdefined(getattr(self.inputs, field))
+                       for field in trait_spec.requires or ()):
+                return retval
+
             if isdefined(retval) and "%s" in retval:
                 name_template = retval
             else:
@@ -1112,6 +853,9 @@ class CommandLine(BaseInterface):
                 base = self._filename_from_source(ns, chain)
                 if isdefined(base):
                     _, _, source_ext = split_filename(base)
+                else:
+                    # Do not generate filename when required fields are missing
+                    return retval
 
             chain = None
             retval = name_template % base
@@ -1133,13 +877,14 @@ class CommandLine(BaseInterface):
         metadata = dict(name_source=lambda t: t is not None)
         traits = self.inputs.traits(**metadata)
         if traits:
-            outputs = self.output_spec().get()
+            outputs = self.output_spec().trait_get()
             for name, trait_spec in list(traits.items()):
                 out_name = name
                 if trait_spec.output_name is not None:
                     out_name = trait_spec.output_name
-                outputs[out_name] = \
-                    os.path.abspath(self._filename_from_source(name))
+                fname = self._filename_from_source(name)
+                if isdefined(fname):
+                    outputs[out_name] = os.path.abspath(fname)
             return outputs
 
     def _parse_inputs(self, skip=None):
@@ -1237,7 +982,7 @@ class SEMLikeCommandLine(CommandLine):
     """
 
     def _list_outputs(self):
-        outputs = self.output_spec().get()
+        outputs = self.output_spec().trait_get()
         return self._outputs_from_inputs(outputs)
 
     def _outputs_from_inputs(self, outputs):
@@ -1265,6 +1010,35 @@ class SEMLikeCommandLine(CommandLine):
                 else:
                     return ""
         return super(SEMLikeCommandLine, self)._format_arg(name, spec, value)
+
+
+class LibraryBaseInterface(BaseInterface):
+    _pkg = None
+    imports = ()
+
+    def __init__(self, check_import=True, *args, **kwargs):
+        super(LibraryBaseInterface, self).__init__(*args, **kwargs)
+        if check_import:
+            import importlib
+            failed_imports = []
+            for pkg in (self._pkg,) + tuple(self.imports):
+                try:
+                    importlib.import_module(pkg)
+                except ImportError:
+                    failed_imports.append(pkg)
+            if failed_imports:
+                iflogger.warning('Unable to import %s; %s interface may fail to '
+                                 'run', failed_imports, self.__class__.__name__)
+
+    @property
+    def version(self):
+        if self._version is None:
+            import importlib
+            try:
+                self._version = importlib.import_module(self._pkg).__version__
+            except (ImportError, AttributeError):
+                pass
+        return super(LibraryBaseInterface, self).version
 
 
 class PackageInfo(object):

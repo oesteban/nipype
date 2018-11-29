@@ -8,7 +8,7 @@ def test_ResponseSD_inputs():
         algorithm=dict(
             argstr='%s',
             mandatory=True,
-            position=-6,
+            position=1,
         ),
         args=dict(argstr='%s', ),
         bval_scale=dict(argstr='-bvalue_scaling %s', ),
@@ -26,11 +26,6 @@ def test_ResponseSD_inputs():
         ),
         grad_file=dict(argstr='-grad %s', ),
         grad_fsl=dict(argstr='-fslgrad %s %s', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_bval=dict(),
         in_bvec=dict(argstr='-fslgrad %s %s', ),
         in_file=dict(
@@ -39,17 +34,17 @@ def test_ResponseSD_inputs():
             position=-5,
         ),
         in_mask=dict(argstr='-mask %s', ),
-        max_sh=dict(argstr='-lmax %d', ),
+        max_sh=dict(
+            argstr='-lmax %s',
+            sep=',',
+            usedefault=True,
+        ),
         mtt_file=dict(
             argstr='%s',
             position=-4,
         ),
         nthreads=dict(
             argstr='-nthreads %d',
-            nohash=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
             nohash=True,
         ),
         wm_file=dict(

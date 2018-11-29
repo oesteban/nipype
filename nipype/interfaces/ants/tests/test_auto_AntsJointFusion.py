@@ -26,10 +26,7 @@ def test_AntsJointFusion_inputs():
             argstr='-c',
             usedefault=True,
         ),
-        dimension=dict(
-            argstr='-d %d',
-            usedefault=False,
-        ),
+        dimension=dict(argstr='-d %d', ),
         environ=dict(
             nohash=True,
             usedefault=True,
@@ -38,11 +35,6 @@ def test_AntsJointFusion_inputs():
         exclusion_image_label=dict(
             argstr='-e %s',
             requires=['exclusion_image'],
-        ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
         ),
         mask_image=dict(argstr='-x %s', ),
         num_threads=dict(
@@ -60,12 +52,9 @@ def test_AntsJointFusion_inputs():
             hash_files=False,
         ),
         out_label_post_prob_name_format=dict(
-            requires=['out_label_fusion', 'out_intensity_fusion_name_format'],
-        ),
-        patch_metric=dict(
-            argstr='-m %s',
-            usedefault=False,
-        ),
+            requires=['out_label_fusion',
+                      'out_intensity_fusion_name_format'], ),
+        patch_metric=dict(argstr='-m %s', ),
         patch_radius=dict(
             argstr='-p %s',
             maxlen=3,
@@ -87,10 +76,6 @@ def test_AntsJointFusion_inputs():
         target_image=dict(
             argstr='-t %s',
             mandatory=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
         verbose=dict(argstr='-v', ),
     )

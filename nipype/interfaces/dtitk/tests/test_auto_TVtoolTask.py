@@ -10,26 +10,14 @@ def test_TVtoolTask_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='-in %s',
-            exists=True,
-            mandatory=False,
-            position=0,
+            mandatory=True,
         ),
-        in_flag=dict(
-            argstr='-%s',
-            exists=True,
-            mandatory=False,
-            position=1,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
+        in_flag=dict(argstr='-%s', ),
+        out_file=dict(
+            argstr='-out %s',
+            genfile=True,
         ),
     )
     inputs = TVtoolTask.input_spec()

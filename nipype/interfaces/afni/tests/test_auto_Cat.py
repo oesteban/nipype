@@ -10,11 +10,6 @@ def test_Cat_inputs():
             nohash=True,
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_files=dict(
             argstr='%s',
             mandatory=True,
@@ -38,6 +33,7 @@ def test_Cat_inputs():
             argstr='> %s',
             mandatory=True,
             position=-1,
+            usedefault=True,
         ),
         out_fint=dict(
             argstr='-f',
@@ -64,10 +60,6 @@ def test_Cat_inputs():
         outputtype=dict(),
         sel=dict(argstr='-sel %s', ),
         stack=dict(argstr='-stack', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
     )
     inputs = Cat.input_spec()
 

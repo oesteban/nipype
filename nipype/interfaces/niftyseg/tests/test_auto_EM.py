@@ -6,14 +6,15 @@ from ..em import EM
 def test_EM_inputs():
     input_map = dict(
         args=dict(argstr='%s', ),
-        bc_order_val=dict(argstr='-bc_order %s', ),
-        bc_thresh_val=dict(argstr='-bc_thresh %s', ),
-        environ=dict(
-            nohash=True,
+        bc_order_val=dict(
+            argstr='-bc_order %s',
             usedefault=True,
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
+        bc_thresh_val=dict(
+            argstr='-bc_thresh %s',
+            usedefault=True,
+        ),
+        environ=dict(
             nohash=True,
             usedefault=True,
         ),
@@ -23,8 +24,14 @@ def test_EM_inputs():
             position=4,
         ),
         mask_file=dict(argstr='-mask %s', ),
-        max_iter=dict(argstr='-max_iter %s', ),
-        min_iter=dict(argstr='-min_iter %s', ),
+        max_iter=dict(
+            argstr='-max_iter %s',
+            usedefault=True,
+        ),
+        min_iter=dict(
+            argstr='-min_iter %s',
+            usedefault=True,
+        ),
         mrf_beta_val=dict(argstr='-mrf_beta %s', ),
         no_prior=dict(
             argstr='-nopriors %s',
@@ -59,10 +66,6 @@ def test_EM_inputs():
         ),
         reg_val=dict(argstr='-reg %s', ),
         relax_priors=dict(argstr='-rf %s %s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
     )
     inputs = EM.input_spec()
 

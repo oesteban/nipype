@@ -14,11 +14,6 @@ def test_CatMatvec_inputs():
             argstr='-4x4',
             xor=['matrix', 'oneline'],
         ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='%s',
             mandatory=True,
@@ -38,14 +33,13 @@ def test_CatMatvec_inputs():
         ),
         out_file=dict(
             argstr=' > %s',
+            keep_extension=False,
             mandatory=True,
+            name_source='in_file',
+            name_template='%s_cat.aff12.1D',
             position=-1,
         ),
         outputtype=dict(),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
     )
     inputs = CatMatvec.input_spec()
 

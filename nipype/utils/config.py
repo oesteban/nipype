@@ -147,11 +147,14 @@ class NipypeConfig(object):
 
     def enable_debug_mode(self):
         """Enables debug configuration"""
+        from .. import logging
         self._config.set('execution', 'stop_on_first_crash', 'true')
         self._config.set('execution', 'remove_unnecessary_outputs', 'false')
         self._config.set('execution', 'keep_inputs', 'true')
         self._config.set('logging', 'workflow_level', 'DEBUG')
         self._config.set('logging', 'interface_level', 'DEBUG')
+        self._config.set('logging', 'utils_level', 'DEBUG')
+        logging.update_logging(self._config)
 
     def set_log_dir(self, log_dir):
         """Sets logging directory
@@ -288,6 +291,10 @@ class NipypeConfig(object):
         """Sets the resource monitor on"""
         self.resource_monitor = True
 
+    def disable_resource_monitor(self):
+        """Sets the resource monitor off"""
+        self.resource_monitor = False
+
     def get_display(self):
         """Returns the first display available"""
 
@@ -350,7 +357,7 @@ class NipypeConfig(object):
         if self._display is not None:
             from .. import logging
             self._display.stop()
-            logging.getLogger('interface').debug(
+            logging.getLogger('nipype.interface').debug(
                 'Closing display (if virtual)')
 
 

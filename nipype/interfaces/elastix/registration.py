@@ -18,7 +18,7 @@ from ... import logging
 from .base import ElastixBaseInputSpec
 from ..base import CommandLine, TraitedSpec, File, traits, InputMultiPath
 
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 
 class RegistrationInputSpec(ElastixBaseInputSpec):
@@ -65,7 +65,7 @@ class Registration(CommandLine):
     >>> reg.inputs.moving_image = 'moving1.nii'
     >>> reg.inputs.parameters = ['elastix.txt']
     >>> reg.cmdline
-    'elastix -f fixed1.nii -m moving1.nii -out ./ -p elastix.txt'
+    'elastix -f fixed1.nii -m moving1.nii -threads 1 -out ./ -p elastix.txt'
 
 
     """
@@ -162,7 +162,7 @@ class ApplyWarp(CommandLine):
     >>> reg.inputs.moving_image = 'moving1.nii'
     >>> reg.inputs.transform_file = 'TransformParameters.0.txt'
     >>> reg.cmdline
-    'transformix -in moving1.nii -out ./ -tp TransformParameters.0.txt'
+    'transformix -in moving1.nii -threads 1 -out ./ -tp TransformParameters.0.txt'
 
 
     """
@@ -178,13 +178,28 @@ class ApplyWarp(CommandLine):
         return outputs
 
 
-class AnalyzeWarpInputSpec(ElastixBaseInputSpec):
-    transform_file = File(
+class AnalyzeWarpInputSpec(ApplyWarpInputSpec):
+    points = traits.Enum(
+        'all',
+        usedefault=True,
+        position=0,
+        argstr='-def %s',
+        desc='transform all points from the input-image, which effectively'
+             ' generates a deformation field.')
+    jac = traits.Enum(
+        'all',
+        usedefault=True,
+        argstr='-jac %s',
+        desc='generate an image with the determinant of the spatial Jacobian')
+    jacmat = traits.Enum(
+        'all',
+        usedefault=True,
+        argstr='-jacmat %s',
+        desc='generate an image with the spatial Jacobian matrix at each voxel')
+    moving_image = File(
         exists=True,
-        mandatory=True,
-        argstr='-tp %s',
-        desc='transform-parameter file, only 1')
-
+        argstr='-in %s',
+        desc='input image to deform (not used)')
 
 class AnalyzeWarpOutputSpec(TraitedSpec):
     disp_field = File(desc='displacements field')
@@ -192,7 +207,7 @@ class AnalyzeWarpOutputSpec(TraitedSpec):
     jacmat_map = File(desc='Jacobian matrix map')
 
 
-class AnalyzeWarp(CommandLine):
+class AnalyzeWarp(ApplyWarp):
     """
     Use transformix to get details from the input transform (generate
     the corresponding deformation field, generate the determinant of the
@@ -205,12 +220,11 @@ class AnalyzeWarp(CommandLine):
     >>> reg = AnalyzeWarp()
     >>> reg.inputs.transform_file = 'TransformParameters.0.txt'
     >>> reg.cmdline
-    'transformix -def all -jac all -jacmat all -out ./ -tp TransformParameters.0.txt'
+    'transformix -def all -jac all -jacmat all -threads 1 -out ./ -tp TransformParameters.0.txt'
 
 
     """
 
-    _cmd = 'transformix -def all -jac all -jacmat all'
     input_spec = AnalyzeWarpInputSpec
     output_spec = AnalyzeWarpOutputSpec
 
@@ -252,7 +266,7 @@ class PointsWarp(CommandLine):
     >>> reg.inputs.points_file = 'surf1.vtk'
     >>> reg.inputs.transform_file = 'TransformParameters.0.txt'
     >>> reg.cmdline
-    'transformix -out ./ -def surf1.vtk -tp TransformParameters.0.txt'
+    'transformix -threads 1 -out ./ -def surf1.vtk -tp TransformParameters.0.txt'
 
 
     """

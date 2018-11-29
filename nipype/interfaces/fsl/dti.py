@@ -4,13 +4,6 @@
 """The fsl module provides classes for interfacing with the `FSL
 <http://www.fmrib.ox.ac.uk/fsl/index.html>`_ command line tools.  This
 was written to work with FSL version 4.1.4.
-
-    Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-    >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -92,6 +85,8 @@ class DTIFitOutputSpec(TraitedSpec):
               'diffusion weighting'))
     tensor = File(
         exists=True, desc='path/name of file with the 4D tensor volume')
+    sse = File(
+        exists=True, desc='path/name of file with the summed squared error')
 
 
 class DTIFit(FSLCommand):
@@ -118,13 +113,21 @@ class DTIFit(FSLCommand):
     output_spec = DTIFitOutputSpec
 
     def _list_outputs(self):
+        keys_to_ignore = {'outputtype', 'environ', 'args'}
+        # Optional output: Map output name to input flag
+        opt_output = {'tensor': self.inputs.save_tensor,
+                      'sse': self.inputs.sse}
+        # Ignore optional output, whose corresponding input-flag is not defined
+        # or set to False
+        for output, input_flag in opt_output.items():
+            if isdefined(input_flag) and input_flag:
+                # this is wanted output, do not ignore
+                continue
+            keys_to_ignore.add(output)
+
         outputs = self.output_spec().get()
-        for k in list(outputs.keys()):
-            if k not in ('outputtype', 'environ', 'args'):
-                if k != 'tensor' or (isdefined(self.inputs.save_tensor)
-                                     and self.inputs.save_tensor):
-                    outputs[k] = self._gen_fname(
-                        self.inputs.base_name, suffix='_' + k)
+        for k in set(outputs.keys()) - keys_to_ignore:
+            outputs[k] = self._gen_fname(self.inputs.base_name, suffix='_' + k)
         return outputs
 
 
@@ -151,7 +154,7 @@ class FSLXCommandInputSpec(FSLCommandInputSpec):
     n_fibres = traits.Range(
         usedefault=True,
         low=1,
-        default=2,
+        value=2,
         argstr='--nfibres=%d',
         desc=('Maximum number of fibres to fit in each voxel'),
         mandatory=True)
@@ -165,27 +168,32 @@ class FSLXCommandInputSpec(FSLCommandInputSpec):
               'shell) model'))
     fudge = traits.Int(argstr='--fudge=%d', desc='ARD fudge factor')
     n_jumps = traits.Int(
-        5000, argstr='--njumps=%d', desc='Num of jumps to be made by MCMC')
+        5000, usedefault=True,
+        argstr='--njumps=%d', desc='Num of jumps to be made by MCMC')
     burn_in = traits.Range(
         low=0,
-        default=0,
+        value=0,
+        usedefault=True,
         argstr='--burnin=%d',
         desc=('Total num of jumps at start of MCMC to be '
               'discarded'))
     burn_in_no_ard = traits.Range(
         low=0,
-        default=0,
-        argstr='--burninnoard=%d',
+        value=0,
+        usedefault=True,
+        argstr='--burnin_noard=%d',
         desc=('num of burnin jumps before the ard is'
               ' imposed'))
     sample_every = traits.Range(
         low=0,
-        default=1,
+        value=1,
+        usedefault=True,
         argstr='--sampleevery=%d',
         desc='Num of jumps for each sample (MCMC)')
     update_proposal_every = traits.Range(
         low=1,
-        default=40,
+        value=40,
+        usedefault=True,
         argstr='--updateproposalevery=%d',
         desc=('Num of jumps for each update '
               'to the proposal density std '
@@ -329,7 +337,7 @@ class BEDPOSTX5InputSpec(FSLXCommandInputSpec):
     n_fibres = traits.Range(
         usedefault=True,
         low=1,
-        default=2,
+        value=2,
         argstr='-n %d',
         desc=('Maximum number of fibres to fit in each voxel'),
         mandatory=True)
@@ -343,16 +351,19 @@ class BEDPOSTX5InputSpec(FSLXCommandInputSpec):
               'shell) model'))
     fudge = traits.Int(argstr='-w %d', desc='ARD fudge factor')
     n_jumps = traits.Int(
-        5000, argstr='-j %d', desc='Num of jumps to be made by MCMC')
+        5000, usedefault=True,
+        argstr='-j %d', desc='Num of jumps to be made by MCMC')
     burn_in = traits.Range(
         low=0,
-        default=0,
+        value=0,
+        usedefault=True,
         argstr='-b %d',
         desc=('Total num of jumps at start of MCMC to be '
               'discarded'))
     sample_every = traits.Range(
         low=0,
-        default=1,
+        value=1,
+        usedefault=True,
         argstr='-s %d',
         desc='Num of jumps for each sample (MCMC)')
     out_dir = Directory(
@@ -423,7 +434,8 @@ class BEDPOSTX5(FSLXCommand):
     >>> bedp = fsl.BEDPOSTX5(bvecs='bvecs', bvals='bvals', dwi='diffusion.nii',
     ...                     mask='mask.nii', n_fibres=1)
     >>> bedp.cmdline
-    'bedpostx bedpostx --forcedir -n 1'
+    'bedpostx bedpostx -b 0 --burnin_noard=0 --forcedir -n 1 -j 5000 \
+-s 1 --updateproposalevery=40'
 
     """
 
@@ -849,7 +861,6 @@ class ProbTrackX2InputSpec(ProbTrackXBaseInputSpec):
     simple = traits.Bool(
         desc=('rack from a list of voxels (seed must be a '
               'ASCII list of coordinates)'),
-        usedefault=False,
         argstr='--simple')
     fopd = File(
         exists=True,

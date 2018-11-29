@@ -15,11 +15,6 @@ def test_Registration_inputs():
             mandatory=True,
         ),
         fixed_mask=dict(argstr='-fMask %s', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         initial_transform=dict(argstr='-t0 %s', ),
         moving_image=dict(
             argstr='-m %s',
@@ -29,6 +24,7 @@ def test_Registration_inputs():
         num_threads=dict(
             argstr='-threads %01d',
             nohash=True,
+            usedefault=True,
         ),
         output_path=dict(
             argstr='-out %s',
@@ -38,10 +34,6 @@ def test_Registration_inputs():
         parameters=dict(
             argstr='-p %s...',
             mandatory=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
     )
     inputs = Registration.input_spec()

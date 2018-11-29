@@ -10,7 +10,6 @@ def test_MultiplyImages_inputs():
             argstr='%d',
             mandatory=True,
             position=0,
-            usedefault=False,
         ),
         environ=dict(
             nohash=True,
@@ -20,11 +19,6 @@ def test_MultiplyImages_inputs():
             argstr='%s',
             mandatory=True,
             position=1,
-        ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
         ),
         num_threads=dict(
             nohash=True,
@@ -39,10 +33,6 @@ def test_MultiplyImages_inputs():
             argstr='%s',
             mandatory=True,
             position=2,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
     )
     inputs = MultiplyImages.input_spec()

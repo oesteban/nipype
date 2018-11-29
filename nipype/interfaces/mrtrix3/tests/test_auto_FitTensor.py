@@ -13,11 +13,6 @@ def test_FitTensor_inputs():
         ),
         grad_file=dict(argstr='-grad %s', ),
         grad_fsl=dict(argstr='-fslgrad %s %s', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_bval=dict(),
         in_bvec=dict(argstr='-fslgrad %s %s', ),
         in_file=dict(
@@ -37,10 +32,9 @@ def test_FitTensor_inputs():
             position=-1,
             usedefault=True,
         ),
-        reg_term=dict(argstr='-regularisation %f', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
+        reg_term=dict(
+            argstr='-regularisation %f',
+            max_ver='0.3.13',
         ),
     )
     inputs = FitTensor.input_spec()

@@ -25,7 +25,7 @@ from ..engine.utils import (nx, dfs_preorder, topological_sort)
 from ..engine import MapNode
 from .tools import report_crash, report_nodes_not_run, create_pyscript
 
-logger = logging.getLogger('workflow')
+logger = logging.getLogger('nipype.workflow')
 
 
 class PluginBase(object):
@@ -154,13 +154,7 @@ class DistributedPluginBase(PluginBase):
                     result = self._get_result(taskid)
                 except Exception:
                     notrun.append(
-                        self._clean_queue(
-                            jobid,
-                            graph,
-                            result={
-                                'result': None,
-                                'traceback': '\n'.join(format_exception(*sys.exc_info()))
-                            }))
+                        self._clean_queue(jobid, graph))
                 else:
                     if result:
                         if result['traceback']:
@@ -222,10 +216,13 @@ class DistributedPluginBase(PluginBase):
 
         if self._status_callback:
             self._status_callback(self.procs[jobid], 'exception')
+        if result is None:
+            result = {'result': None,
+                      'traceback': '\n'.join(format_exception(*sys.exc_info()))}
 
+        crashfile = self._report_crash(self.procs[jobid], result=result)
         if str2bool(self._config['execution']['stop_on_first_crash']):
             raise RuntimeError("".join(result['traceback']))
-        crashfile = self._report_crash(self.procs[jobid], result=result)
         if jobid in self.mapnodesubids:
             # remove current jobid
             self.proc_pending[jobid] = False
@@ -244,7 +241,7 @@ class DistributedPluginBase(PluginBase):
         mapnodesubids = self.procs[jobid].get_subnodes()
         numnodes = len(mapnodesubids)
         logger.debug('Adding %d jobs for mapnode %s', numnodes,
-                     self.procs[jobid].fullname)
+                     self.procs[jobid])
         for i in range(numnodes):
             self.mapnodesubids[self.depidx.shape[0] + i] = jobid
         self.procs.extend(mapnodesubids)
@@ -304,7 +301,7 @@ class DistributedPluginBase(PluginBase):
                     self.proc_pending[jobid] = True
                     # Send job to task manager and add to pending tasks
                     logger.info('Submitting: %s ID: %d',
-                                self.procs[jobid]._id, jobid)
+                                self.procs[jobid], jobid)
                     if self._status_callback:
                         self._status_callback(self.procs[jobid], 'start')
 
@@ -328,7 +325,7 @@ class DistributedPluginBase(PluginBase):
                             else:
                                 self.pending_tasks.insert(0, (tid, jobid))
                     logger.info('Finished submitting: %s ID: %d',
-                                self.procs[jobid]._id, jobid)
+                                self.procs[jobid], jobid)
             else:
                 break
 
@@ -343,10 +340,10 @@ class DistributedPluginBase(PluginBase):
             logger.warning(
                 'Error while checking node hash, forcing re-run. '
                 'Although this error may not prevent the workflow from running, '
-                'it could indicate a major problem. Please report a new issue'
-                'at https://github.com/nipy/nipype/issues adding the following'
+                'it could indicate a major problem. Please report a new issue '
+                'at https://github.com/nipy/nipype/issues adding the following '
                 'information:\n\n\tNode: %s\n\tInterface: %s.%s\n\tTraceback:\n%s',
-                self.procs[jobid].fullname,
+                self.procs[jobid],
                 self.procs[jobid].interface.__module__,
                 self.procs[jobid].interface.__class__.__name__,
                 '\n'.join(format_exception(*sys.exc_info()))
@@ -354,20 +351,20 @@ class DistributedPluginBase(PluginBase):
             return False
 
         logger.debug('Checking hash "%s" locally: cached=%s, updated=%s.',
-                    self.procs[jobid].fullname, cached, updated)
+                     self.procs[jobid], cached, updated)
         overwrite = self.procs[jobid].overwrite
         always_run = self.procs[jobid].interface.always_run
 
         if cached and updated and (overwrite is False or
                                    overwrite is None and not always_run):
             logger.debug('Skipping cached node %s with ID %s.',
-                         self.procs[jobid]._id, jobid)
+                         self.procs[jobid], jobid)
             try:
                 self._task_finished_cb(jobid, cached=True)
                 self._remove_node_dirs()
             except Exception:
                 logger.debug('Error skipping cached node %s (%s).\n\n%s',
-                             self.procs[jobid]._id, jobid,
+                             self.procs[jobid], jobid,
                              '\n'.join(format_exception(*sys.exc_info())))
                 self._clean_queue(jobid, graph)
                 self.proc_pending[jobid] = False
@@ -380,7 +377,7 @@ class DistributedPluginBase(PluginBase):
         This is called when a job is completed.
         """
         logger.info('[Job %d] %s (%s).', jobid, 'Cached'
-                    if cached else 'Completed', self.procs[jobid].fullname)
+                    if cached else 'Completed', self.procs[jobid])
         if self._status_callback:
             self._status_callback(self.procs[jobid], 'end')
         # Update job and worker queues

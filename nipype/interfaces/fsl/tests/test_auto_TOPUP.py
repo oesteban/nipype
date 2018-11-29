@@ -27,11 +27,6 @@ def test_TOPUP_inputs():
         ),
         estmov=dict(argstr='--estmov=%d', ),
         fwhm=dict(argstr='--fwhm=%f', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='--imain=%s',
             mandatory=True,
@@ -86,17 +81,13 @@ def test_TOPUP_inputs():
             requires=['encoding_direction'],
             xor=['encoding_file'],
         ),
-        reg_lambda=dict(argstr='--miter=%0.f', ),
+        reg_lambda=dict(argstr='--lambda=%0.f', ),
         regmod=dict(argstr='--regmod=%s', ),
         regrid=dict(argstr='--regrid=%d', ),
         scale=dict(argstr='--scale=%d', ),
         splineorder=dict(argstr='--splineorder=%d', ),
         ssqlambda=dict(argstr='--ssqlambda=%d', ),
         subsamp=dict(argstr='--subsamp=%d', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         warp_res=dict(argstr='--warpres=%f', ),
     )
     inputs = TOPUP.input_spec()

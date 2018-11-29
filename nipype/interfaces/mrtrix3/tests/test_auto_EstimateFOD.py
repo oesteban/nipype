@@ -15,6 +15,7 @@ def test_EstimateFOD_inputs():
         csf_odf=dict(
             argstr='%s',
             position=-1,
+            usedefault=True,
         ),
         csf_txt=dict(
             argstr='%s',
@@ -27,6 +28,7 @@ def test_EstimateFOD_inputs():
         gm_odf=dict(
             argstr='%s',
             position=-3,
+            usedefault=True,
         ),
         gm_txt=dict(
             argstr='%s',
@@ -34,11 +36,6 @@ def test_EstimateFOD_inputs():
         ),
         grad_file=dict(argstr='-grad %s', ),
         grad_fsl=dict(argstr='-fslgrad %s %s', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_bval=dict(),
         in_bvec=dict(argstr='-fslgrad %s %s', ),
         in_dirs=dict(argstr='-directions %s', ),
@@ -48,7 +45,10 @@ def test_EstimateFOD_inputs():
             position=-7,
         ),
         mask_file=dict(argstr='-mask %s', ),
-        max_sh=dict(argstr='-lmax %d', ),
+        max_sh=dict(
+            argstr='-lmax %d',
+            usedefault=True,
+        ),
         nthreads=dict(
             argstr='-nthreads %d',
             nohash=True,
@@ -56,10 +56,6 @@ def test_EstimateFOD_inputs():
         shell=dict(
             argstr='-shell %s',
             sep=',',
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
         wm_odf=dict(
             argstr='%s',

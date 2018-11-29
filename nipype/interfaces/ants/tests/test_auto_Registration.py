@@ -37,11 +37,6 @@ def test_Registration_inputs():
             xor=['fixed_image_mask'],
         ),
         float=dict(argstr='--float %d', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         initial_moving_transform=dict(
             argstr='%s',
             xor=['initial_moving_transform_com'],
@@ -71,7 +66,7 @@ def test_Registration_inputs():
             requires=['metric'],
             usedefault=True,
         ),
-        metric_weight_item_trait=dict(),
+        metric_weight_item_trait=dict(usedefault=True, ),
         metric_weight_stage_trait=dict(),
         moving_image=dict(mandatory=True, ),
         moving_image_mask=dict(
@@ -97,7 +92,7 @@ def test_Registration_inputs():
             usedefault=True,
         ),
         output_warped_image=dict(hash_files=False, ),
-        radius_bins_item_trait=dict(),
+        radius_bins_item_trait=dict(usedefault=True, ),
         radius_bins_stage_trait=dict(),
         radius_or_number_of_bins=dict(
             requires=['metric_weight'],
@@ -115,10 +110,6 @@ def test_Registration_inputs():
         shrink_factors=dict(mandatory=True, ),
         sigma_units=dict(requires=['smoothing_sigmas'], ),
         smoothing_sigmas=dict(mandatory=True, ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         transform_parameters=dict(),
         transforms=dict(
             argstr='%s',
@@ -126,7 +117,10 @@ def test_Registration_inputs():
         ),
         use_estimate_learning_rate_once=dict(),
         use_histogram_matching=dict(usedefault=True, ),
-        verbose=dict(argstr='-v', ),
+        verbose=dict(
+            argstr='-v',
+            usedefault=True,
+        ),
         winsorize_lower_quantile=dict(
             argstr='%s',
             usedefault=True,

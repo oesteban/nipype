@@ -4,12 +4,6 @@
 """The fsl module provides classes for interfacing with the `FSL
 <http://www.fmrib.ox.ac.uk/fsl/index.html>`_ command line tools.  This
 was written to work with FSL version 4.1.4.
-
-    Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-    >>> os.chdir(datadir)
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -119,7 +113,7 @@ class BETOutputSpec(TraitedSpec):
 
 
 class BET(FSLCommand):
-    """Use FSL BET command for skull stripping.
+    """FSL BET wrapper for skull stripping
 
     For complete details, see the `BET Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/BET/UserGuide>`_
@@ -318,7 +312,7 @@ class FASTOutputSpec(TraitedSpec):
 
 
 class FAST(FSLCommand):
-    """ Use FSL FAST for segmenting and bias correction.
+    """FSL FAST wrapper for segmentation and bias correction
 
     For complete details, see the `FAST Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FAST>`_
@@ -641,7 +635,7 @@ class FLIRTOutputSpec(TraitedSpec):
 
 
 class FLIRT(FSLCommand):
-    """Use FSL FLIRT for coregistration.
+    """FSL FLIRT wrapper for coregistration
 
     For complete details, see the `FLIRT Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FLIRT>`_
@@ -796,7 +790,7 @@ class MCFLIRTOutputSpec(TraitedSpec):
 
 
 class MCFLIRT(FSLCommand):
-    """Use FSL MCFLIRT to do within-modality motion correction.
+    """FSL MCFLIRT wrapper for within-modality motion correction
 
     For complete details, see the `MCFLIRT Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/MCFLIRT>`_
@@ -826,16 +820,16 @@ class MCFLIRT(FSLCommand):
         return super(MCFLIRT, self)._format_arg(name, spec, value)
 
     def _list_outputs(self):
-        cwd = os.getcwd()
         outputs = self._outputs().get()
 
         outputs['out_file'] = self._gen_outfilename()
+        output_dir = os.path.dirname(outputs['out_file'])
 
         if isdefined(self.inputs.stats_imgs) and self.inputs.stats_imgs:
             outputs['variance_img'] = self._gen_fname(
-                outputs['out_file'] + '_variance.ext', cwd=cwd)
+                outputs['out_file'] + '_variance.ext', cwd=output_dir)
             outputs['std_img'] = self._gen_fname(
-                outputs['out_file'] + '_sigma.ext', cwd=cwd)
+                outputs['out_file'] + '_sigma.ext', cwd=output_dir)
 
         # The mean image created if -stats option is specified ('meanvol')
         # is missing the top and bottom slices. Therefore we only expose the
@@ -845,11 +839,11 @@ class MCFLIRT(FSLCommand):
 
         if isdefined(self.inputs.mean_vol) and self.inputs.mean_vol:
             outputs['mean_img'] = self._gen_fname(
-                outputs['out_file'] + '_mean_reg.ext', cwd=cwd)
+                outputs['out_file'] + '_mean_reg.ext', cwd=output_dir)
 
         if isdefined(self.inputs.save_mats) and self.inputs.save_mats:
             _, filename = os.path.split(outputs['out_file'])
-            matpathname = os.path.join(cwd, filename + '.mat')
+            matpathname = os.path.join(output_dir, filename + '.mat')
             _, _, _, timepoints = load(self.inputs.in_file).shape
             outputs['mat_file'] = []
             for t in range(timepoints):
@@ -1112,7 +1106,7 @@ class FNIRTOutputSpec(TraitedSpec):
 
 
 class FNIRT(FSLCommand):
-    """Use FSL FNIRT for non-linear registration.
+    """FSL FNIRT wrapper for non-linear registration
 
     For complete details, see the `FNIRT Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FNIRT>`_
@@ -1311,7 +1305,7 @@ class ApplyWarpOutputSpec(TraitedSpec):
 
 
 class ApplyWarp(FSLCommand):
-    """Use FSL's applywarp to apply the results of a FNIRT registration
+    """FSL's applywarp wrapper to apply the results of a FNIRT registration
 
     Examples
     --------
@@ -1395,7 +1389,7 @@ class SliceTimerOutputSpec(TraitedSpec):
 
 
 class SliceTimer(FSLCommand):
-    """ use FSL slicetimer to perform slice timing correction.
+    """FSL slicetimer wrapper to perform slice timing correction
 
     Examples
     --------
@@ -1464,7 +1458,6 @@ class SUSANInputSpec(FSLCommandInputSpec):
         maxlen=2,
         argstr='',
         position=6,
-        default=[],
         usedefault=True,
         desc='determines whether the smoothing area (USAN) is to be '
         'found from secondary images (0, 1 or 2). A negative '
@@ -1483,7 +1476,7 @@ class SUSANOutputSpec(TraitedSpec):
 
 
 class SUSAN(FSLCommand):
-    """ use FSL SUSAN to perform smoothing
+    """FSL SUSAN wrapper to perform smoothing
 
     For complete details, see the `SUSAN Documentation.
     <https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/SUSAN>`_
@@ -1653,7 +1646,8 @@ class FUGUEOutputSpec(TraitedSpec):
 
 
 class FUGUE(FSLCommand):
-    """
+    """FSL FUGUE set of tools for EPI distortion correction
+
     `FUGUE <http://fsl.fmrib.ox.ac.uk/fsl/fslwiki/FUGUE>`_ is, most generally,
     a set of tools for EPI distortion correction.
 
@@ -1670,7 +1664,7 @@ class FUGUE(FSLCommand):
     --------
 
 
-    Unwarping an input image (shift map is known)
+    Unwarping an input image (shift map is known):
 
     >>> from nipype.interfaces.fsl.preprocess import FUGUE
     >>> fugue = FUGUE()
@@ -1684,7 +1678,7 @@ class FUGUE(FSLCommand):
     >>> fugue.run() #doctest: +SKIP
 
 
-    Warping an input image (shift map is known)
+    Warping an input image (shift map is known):
 
     >>> from nipype.interfaces.fsl.preprocess import FUGUE
     >>> fugue = FUGUE()
@@ -1699,7 +1693,7 @@ class FUGUE(FSLCommand):
     >>> fugue.run() #doctest: +SKIP
 
 
-    Computing the vsm (unwrapped phase map is known)
+    Computing the vsm (unwrapped phase map is known):
 
     >>> from nipype.interfaces.fsl.preprocess import FUGUE
     >>> fugue = FUGUE()
@@ -1876,7 +1870,7 @@ class PRELUDEOutputSpec(TraitedSpec):
 
 
 class PRELUDE(FSLCommand):
-    """Use FSL prelude to do phase unwrapping
+    """FSL prelude wrapper for phase unwrapping
 
     Examples
     --------
@@ -1986,8 +1980,7 @@ class FIRSTOutputSpec(TraitedSpec):
 
 
 class FIRST(FSLCommand):
-    """
-    Use FSL's run_first_all command to segment subcortical volumes
+    """FSL run_first_all wrapper for segmentation of subcortical volumes
 
     http://www.fmrib.ox.ac.uk/fsl/first/index.html
 
@@ -2025,7 +2018,7 @@ class FIRST(FSLCommand):
         outputs['bvars'] = self._gen_mesh_names('bvars', structures)
         return outputs
 
-    def _gen_fname(self, name):
+    def _gen_fname(self, basename):
         path, outname, ext = split_filename(self.inputs.out_file)
 
         method = 'none'
@@ -2039,9 +2032,9 @@ class FIRST(FSLCommand):
             thres = '%.4f' % self.inputs.method_as_numerical_threshold
             method = thres.replace('.', '')
 
-        if name == 'original_segmentations':
+        if basename == 'original_segmentations':
             return op.abspath('%s_all_%s_origsegs.nii.gz' % (outname, method))
-        if name == 'segmentation_file':
+        if basename == 'segmentation_file':
             return op.abspath('%s_all_%s_firstseg.nii.gz' % (outname, method))
 
         return None

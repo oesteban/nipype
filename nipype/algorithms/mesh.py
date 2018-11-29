@@ -3,14 +3,6 @@
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """
 Miscellaneous algorithms for 2D contours and 3D triangularized meshes handling
-
-  .. testsetup::
-    # Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname(os.path.realpath( __file__ ))
-    >>> datadir = os.path.realpath(os.path.join(filepath, '../testing/data'))
-    >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -25,7 +17,7 @@ from ..interfaces.base import (BaseInterface, traits, TraitedSpec, File,
                                BaseInterfaceInputSpec)
 from ..interfaces.vtkbase import tvtk
 from ..interfaces import vtkbase as VTKInfo
-IFLOGGER = logging.getLogger('interface')
+IFLOGGER = logging.getLogger('nipype.interface')
 
 
 class TVTKBaseInterface(BaseInterface):
@@ -297,6 +289,7 @@ class MeshWarpMathsInputSpec(BaseInterfaceInputSpec):
         float_trait,
         File(exists=True),
         default=1.0,
+        usedefault=True,
         mandatory=True,
         desc='image, float or tuple of floats to act as operator')
 
@@ -429,5 +422,5 @@ class P2PDistance(ComputeMeshWarp):
 
     def __init__(self, **inputs):
         super(P2PDistance, self).__init__(**inputs)
-        IFLOGGER.warn('This interface has been deprecated since 1.0, please '
-                      'use ComputeMeshWarp')
+        IFLOGGER.warning('This interface has been deprecated since 1.0, please '
+                         'use ComputeMeshWarp')

@@ -6,11 +6,6 @@ from ..tensors import DTI
 def test_DTI_inputs():
     input_map = dict(
         b0_thres=dict(usedefault=True, ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_bval=dict(mandatory=True, ),
         in_bvec=dict(mandatory=True, ),
         in_file=dict(mandatory=True, ),
@@ -25,6 +20,7 @@ def test_DTI_inputs():
 def test_DTI_outputs():
     output_map = dict(
         ad_file=dict(),
+        color_fa_file=dict(),
         fa_file=dict(),
         md_file=dict(),
         out_file=dict(),

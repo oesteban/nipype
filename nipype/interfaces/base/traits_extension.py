@@ -25,7 +25,7 @@ from __future__ import (print_function, division, unicode_literals,
 
 from builtins import str, bytes
 import os
-import collections
+from collections import Sequence
 
 # perform all external trait imports here
 from traits import __version__ as traits_version
@@ -217,6 +217,16 @@ class ImageFile(File):
         super(ImageFile, self).__init__(value, filter, auto_set, entries,
                                         exists, **metadata)
 
+    def info(self):
+        existing = 'n existing' if self.exists else ''
+        comma = ',' if self.exists and not self.allow_compressed else ''
+        uncompressed = ' uncompressed' if not self.allow_compressed else ''
+        with_ext = ' (valid extensions: [{}])'.format(
+            ', '.join(self.grab_exts())) if self.types else ''
+        return 'a{existing}{comma}{uncompressed} file{with_ext}'.format(
+            existing=existing, comma=comma, uncompressed=uncompressed,
+            with_ext=with_ext)
+
     def grab_exts(self):
         # TODO: file type validation
         exts = []
@@ -243,11 +253,11 @@ class ImageFile(File):
         """
         validated_value = super(ImageFile, self).validate(object, name, value)
         if validated_value and self.types:
-            self._exts = self.grab_exts()
-            if not any(validated_value.endswith(x) for x in self._exts):
+            _exts = self.grab_exts()
+            if not any(validated_value.endswith(x) for x in _exts):
                 raise TraitError(
                     args="{} is not included in allowed types: {}".format(
-                        validated_value, ', '.join(self._exts)))
+                        validated_value, ', '.join(_exts)))
         return validated_value
 
 
@@ -305,15 +315,15 @@ def has_metadata(trait, metadata, value=None, recursive=True):
     return count > 0
 
 
-class MultiPath(traits.List):
-    """ Abstract class - shared functionality of input and output MultiPath
+class MultiObject(traits.List):
+    """ Abstract class - shared functionality of input and output MultiObject
     """
 
     def validate(self, object, name, value):
 
         # want to treat range and other sequences (except str) as list
         if not isinstance(value, (str, bytes)) and isinstance(
-                value, collections.Sequence):
+                value, Sequence):
             value = list(value)
 
         if not isdefined(value) or \
@@ -322,17 +332,13 @@ class MultiPath(traits.List):
 
         newvalue = value
 
+        inner_trait = self.inner_traits()[0]
         if not isinstance(value, list) \
-            or (self.inner_traits() and
-                isinstance(self.inner_traits()[0].trait_type,
-                           traits.List) and not
-                isinstance(self.inner_traits()[0].trait_type,
-                           InputMultiPath) and
-                isinstance(value, list) and
-                value and not
-                isinstance(value[0], list)):
+            or (isinstance(inner_trait.trait_type, traits.List) and
+                not isinstance(inner_trait.trait_type, InputMultiObject) and
+                not isinstance(value[0], list)):
             newvalue = [value]
-        value = super(MultiPath, self).validate(object, name, newvalue)
+        value = super(MultiObject, self).validate(object, name, newvalue)
 
         if value:
             return value
@@ -340,7 +346,7 @@ class MultiPath(traits.List):
         self.error(object, name, value)
 
 
-class OutputMultiPath(MultiPath):
+class OutputMultiObject(MultiObject):
     """ Implements a user friendly traits that accepts one or more
     paths to files or directories. This is the output version which
     return a single string whenever possible (when it was set to a
@@ -352,9 +358,9 @@ class OutputMultiPath(MultiPath):
 
     XXX This needs to be vetted by somebody who understands traits
 
-    >>> from nipype.interfaces.base import OutputMultiPath, TraitedSpec
+    >>> from nipype.interfaces.base import OutputMultiObject, TraitedSpec
     >>> class A(TraitedSpec):
-    ...     foo = OutputMultiPath(File(exists=False))
+    ...     foo = OutputMultiObject(File(exists=False))
     >>> a = A()
     >>> a.foo
     <undefined>
@@ -386,7 +392,7 @@ class OutputMultiPath(MultiPath):
         self.set_value(object, name, value)
 
 
-class InputMultiPath(MultiPath):
+class InputMultiObject(MultiObject):
     """ Implements a user friendly traits that accepts one or more
     paths to files or directories. This is the input version which
     always returns a list. Default value of this trait
@@ -397,9 +403,9 @@ class InputMultiPath(MultiPath):
 
     XXX This needs to be vetted by somebody who understands traits
 
-    >>> from nipype.interfaces.base import InputMultiPath, TraitedSpec
+    >>> from nipype.interfaces.base import InputMultiObject, TraitedSpec
     >>> class A(TraitedSpec):
-    ...     foo = InputMultiPath(File(exists=False))
+    ...     foo = InputMultiObject(File(exists=False))
     >>> a = A()
     >>> a.foo
     <undefined>
@@ -418,3 +424,6 @@ class InputMultiPath(MultiPath):
 
     """
     pass
+
+InputMultiPath = InputMultiObject
+OutputMultiPath = OutputMultiObject

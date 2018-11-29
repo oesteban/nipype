@@ -37,7 +37,7 @@ from ..base import (traits, isdefined, CommandLine, CommandLineInputSpec,
                     PackageInfo)
 from ...external.due import BibTeX
 
-IFLOGGER = logging.getLogger('interface')
+IFLOGGER = logging.getLogger('nipype.interface')
 
 
 class Info(PackageInfo):
@@ -107,8 +107,8 @@ class Info(PackageInfo):
         try:
             return os.environ['FSLOUTPUTTYPE']
         except KeyError:
-            IFLOGGER.warn('FSLOUTPUTTYPE environment variable is not set. '
-                          'Setting FSLOUTPUTTYPE=NIFTI')
+            IFLOGGER.warning('FSLOUTPUTTYPE environment variable is not set. '
+                             'Setting FSLOUTPUTTYPE=NIFTI')
             return 'NIFTI'
 
     @staticmethod

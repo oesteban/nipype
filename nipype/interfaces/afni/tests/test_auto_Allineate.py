@@ -27,11 +27,6 @@ def test_Allineate_inputs():
         epi=dict(argstr='-EPI', ),
         final_interpolation=dict(argstr='-final %s', ),
         fine_blur=dict(argstr='-fineblur %f', ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
         in_file=dict(
             argstr='-source %s',
             copyfile=False,
@@ -61,12 +56,14 @@ def test_Allineate_inputs():
             usedefault=True,
         ),
         nwarp=dict(argstr='-nwarp %s', ),
-        nwarp_fixdep=dict(argstr='-nwarp_fixdep%s', ),
-        nwarp_fixmot=dict(argstr='-nwarp_fixmot%s', ),
+        nwarp_fixdep=dict(argstr='-nwarp_fixdep%s...', ),
+        nwarp_fixmot=dict(argstr='-nwarp_fixmot%s...', ),
         one_pass=dict(argstr='-onepass', ),
         out_file=dict(
             argstr='-prefix %s',
-            genfile=True,
+            hash_files=False,
+            name_source='in_file',
+            name_template='%s_allineate',
             xor=['allcostx'],
         ),
         out_matrix=dict(
@@ -89,10 +86,6 @@ def test_Allineate_inputs():
         replacemeth=dict(argstr='-replacemeth %s', ),
         source_automask=dict(argstr='-source_automask+%d', ),
         source_mask=dict(argstr='-source_mask %s', ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
-        ),
         two_best=dict(argstr='-twobest %d', ),
         two_blur=dict(argstr='-twoblur %f', ),
         two_first=dict(argstr='-twofirst', ),

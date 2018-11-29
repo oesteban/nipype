@@ -22,16 +22,11 @@ def test_Label2Vol_inputs():
             nohash=True,
             usedefault=True,
         ),
-        fill_thresh=dict(argstr='--fillthresh %.f', ),
+        fill_thresh=dict(argstr='--fillthresh %g', ),
         hemi=dict(argstr='--hemi %s', ),
         identity=dict(
             argstr='--identity',
             xor=('reg_file', 'reg_header', 'identity'),
-        ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
         ),
         invert_mtx=dict(argstr='--invertmtx', ),
         label_file=dict(
@@ -68,10 +63,6 @@ def test_Label2Vol_inputs():
         template_file=dict(
             argstr='--temp %s',
             mandatory=True,
-        ),
-        terminal_output=dict(
-            deprecated='1.0.0',
-            nohash=True,
         ),
         vol_label_file=dict(
             argstr='--o %s',

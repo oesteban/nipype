@@ -1,11 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-   >>> os.chdir(datadir)
-"""
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
 
@@ -18,7 +11,7 @@ from ... import logging
 from ..base import (TraitedSpec, BaseInterfaceInputSpec, File, isdefined,
                     traits)
 from .base import DipyBaseInterface
-IFLOGGER = logging.getLogger('interface')
+IFLOGGER = logging.getLogger('nipype.interface')
 
 
 class TrackDensityMapInputSpec(BaseInterfaceInputSpec):
@@ -80,8 +73,8 @@ class TrackDensityMap(DipyBaseInterface):
             data_dims = refnii.shape[:3]
             kwargs = dict(affine=affine)
         else:
-            IFLOGGER.warn('voxel_dims and data_dims are deprecated as of dipy '
-                          '0.7.1. Please use reference input instead')
+            IFLOGGER.warning('voxel_dims and data_dims are deprecated as of dipy '
+                             '0.7.1. Please use reference input instead')
 
             if not isdefined(self.inputs.data_dims):
                 data_dims = header['dim']

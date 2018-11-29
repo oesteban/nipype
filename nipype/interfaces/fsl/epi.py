@@ -4,13 +4,6 @@
 """The fsl module provides classes for interfacing with the `FSL
 <http://www.fmrib.ox.ac.uk/fsl/index.html>`_ command line tools.  This
 was written to work with FSL version 5.0.4.
-
-    Change directory to provide relative paths for doctests
-    >>> import os
-    >>> filepath = os.path.dirname(os.path.realpath(__file__))
-    >>> datadir = os.path.realpath(os.path.join(filepath,
-    ...                            '../../testing/data'))
-    >>> os.chdir(datadir)
 """
 from __future__ import print_function, division, unicode_literals, \
     absolute_import
@@ -206,14 +199,12 @@ class TOPUPInputSpec(FSLCommandInputSpec):
     # TODO: the following traits admit values separated by commas, one value
     # per registration level inside topup.
     warp_res = traits.Float(
-        10.0,
         argstr='--warpres=%f',
         desc=('(approximate) resolution (in mm) of warp '
-              'basis for the different sub-sampling levels'
-              '.'))
-    subsamp = traits.Int(1, argstr='--subsamp=%d', desc='sub-sampling scheme')
+              'basis for the different sub-sampling levels'))
+    subsamp = traits.Int(argstr='--subsamp=%d',
+                         desc='sub-sampling scheme')
     fwhm = traits.Float(
-        8.0,
         argstr='--fwhm=%f',
         desc='FWHM (in mm) of gaussian smoothing kernel')
     config = traits.String(
@@ -223,12 +214,12 @@ class TOPUPInputSpec(FSLCommandInputSpec):
         desc=('Name of config file specifying command line '
               'arguments'))
     max_iter = traits.Int(
-        5, argstr='--miter=%d', desc='max # of non-linear iterations')
+        argstr='--miter=%d',
+        desc='max # of non-linear iterations')
     reg_lambda = traits.Float(
-        1.0,
-        argstr='--miter=%0.f',
-        desc=('lambda weighting value of the '
-              'regularisation term'))
+        argstr='--lambda=%0.f',
+        desc=('Weight of regularisation, default '
+              'depending on --ssqlambda and --regmod switches.'))
     ssqlambda = traits.Enum(
         1,
         0,
@@ -263,7 +254,6 @@ class TOPUPInputSpec(FSLCommandInputSpec):
         desc=('Minimisation method 0=Levenberg-Marquardt, '
               '1=Scaled Conjugate Gradient'))
     splineorder = traits.Int(
-        3,
         argstr='--splineorder=%d',
         desc=('order of spline, 2->Qadratic spline, '
               '3->Cubic spline'))
@@ -606,13 +596,13 @@ class EddyInputSpec(FSLCommandInputSpec):
         desc='Interpolation model for estimation step')
 
     nvoxhp = traits.Int(
-        1000,
+        1000, usedefault=True,
         argstr='--nvoxhp=%s',
         desc=('# of voxels used to estimate the '
               'hyperparameters'))
 
     fudge_factor = traits.Float(
-        10.0,
+        10.0, usedefault=True,
         argstr='--ff=%s',
         desc=('Fudge factor for hyperparameter '
               'error variance'))
@@ -635,7 +625,8 @@ class EddyInputSpec(FSLCommandInputSpec):
               'the parameters'),
         argstr='--fwhm=%s')
 
-    niter = traits.Int(5, argstr='--niter=%s', desc='Number of iterations')
+    niter = traits.Int(5, usedefault=True,
+                       argstr='--niter=%s', desc='Number of iterations')
 
     method = traits.Enum(
         'jac',
@@ -717,14 +708,14 @@ class Eddy(FSLCommand):
     >>> eddy.inputs.in_bval  = 'bvals.scheme'
     >>> eddy.inputs.use_cuda = True
     >>> eddy.cmdline # doctest: +ELLIPSIS
-    'eddy_cuda --acqp=epi_acqp.txt --bvals=bvals.scheme --bvecs=bvecs.scheme \
---imain=epi.nii --index=epi_index.txt --mask=epi_mask.nii \
---out=.../eddy_corrected'
+    'eddy_cuda --ff=10.0 --acqp=epi_acqp.txt --bvals=bvals.scheme \
+--bvecs=bvecs.scheme --imain=epi.nii --index=epi_index.txt \
+--mask=epi_mask.nii --niter=5 --nvoxhp=1000 --out=.../eddy_corrected'
     >>> eddy.inputs.use_cuda = False
     >>> eddy.cmdline # doctest: +ELLIPSIS
-    'eddy_openmp --acqp=epi_acqp.txt --bvals=bvals.scheme \
+    'eddy_openmp --ff=10.0 --acqp=epi_acqp.txt --bvals=bvals.scheme \
 --bvecs=bvecs.scheme --imain=epi.nii --index=epi_index.txt \
---mask=epi_mask.nii --out=.../eddy_corrected'
+--mask=epi_mask.nii --niter=5 --nvoxhp=1000 --out=.../eddy_corrected'
     >>> res = eddy.run() # doctest: +SKIP
 
     """
@@ -956,6 +947,8 @@ class EpiRegOutputSpec(TraitedSpec):
                     structural space')
     wmseg = File(
         exists=True, desc='white matter segmentation used in flirt bbr')
+    seg = File(
+        exists=True, desc='white matter, gray matter, csf segmentation')
     wmedge = File(exists=True, desc='white matter edges for visualization')
 
 
@@ -1022,6 +1015,8 @@ class EpiReg(FSLCommand):
             os.getcwd(), self.inputs.out_base + '_fast_wmedge.nii.gz')
         outputs['wmseg'] = os.path.join(
             os.getcwd(), self.inputs.out_base + '_fast_wmseg.nii.gz')
+        outputs['seg'] = os.path.join(
+            os.getcwd(), self.inputs.out_base + '_fast_seg.nii.gz')
 
         return outputs
 

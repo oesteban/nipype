@@ -2,13 +2,6 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
 """Provides interfaces to various commands provided by FreeSurfer
-
-   Change directory to provide relative paths for doctests
-   >>> import os
-   >>> filepath = os.path.dirname( os.path.realpath( __file__ ) )
-   >>> datadir = os.path.realpath(os.path.join(filepath, '../../testing/data'))
-   >>> os.chdir(datadir)
-
 """
 from __future__ import (print_function, division, unicode_literals,
                         absolute_import)
@@ -33,7 +26,7 @@ from .base import (FSCommand, FSTraitedSpec, FSTraitedSpecOpenMP,
 from .utils import copy2subjdir
 
 __docformat__ = 'restructuredtext'
-iflogger = logging.getLogger('interface')
+iflogger = logging.getLogger('nipype.interface')
 
 # Keeping this to avoid breaking external programs that depend on it, but
 # this should not be used internally
@@ -415,7 +408,7 @@ class MRIConvertInputSpec(FSTraitedSpec):
         argstr='--sdcmlist %s',
         desc='list of DICOM files for conversion')
     template_info = traits.Bool(
-        '--template_info', desc='dump info about template')
+        argstr='--template_info', desc='dump info about template')
     crop_gdf = traits.Bool(argstr='--crop_gdf', desc='apply GDF cropping')
     zero_ge_z_offset = traits.Bool(
         argstr='--zero_ge_z_offset', desc='zero ge z offset ???')
@@ -1333,6 +1326,12 @@ class ReconAll(CommandLine):
         with open(xopts_file, 'r') as fobj:
             return fobj.read()
 
+    @property
+    def version(self):
+        ver = Info.looseversion()
+        if ver > LooseVersion("0.0.0"):
+            return ver.vstring
+
 
 class BBRegisterInputSpec(FSTraitedSpec):
     subject_id = traits.Str(
@@ -2140,7 +2139,7 @@ class MNIBiasCorrectionInputSpec(FSTraitedSpec):
         desc="output volume. Output can be any format accepted by mri_convert. "
         + "If the output format is COR, then the directory must exist.")
     iterations = traits.Int(
-        4,
+        4, usedefault=True,
         argstr="--n %d",
         desc=
         "Number of iterations to run nu_correct. Default is 4. This is the number of times "
@@ -2299,9 +2298,7 @@ class NormalizeInputSpec(FSTraitedSpec):
         desc="The output file for Normalize")
     # optional
     gradient = traits.Int(
-        1,
         argstr="-g %d",
-        usedefault=False,
         desc="use max intensity/mm gradient g (default=1)")
     mask = File(
         argstr="-mask %s",

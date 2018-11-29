@@ -5,11 +5,7 @@ from ..misc import FuzzyOverlap
 
 def test_FuzzyOverlap_inputs():
     input_map = dict(
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
+        in_mask=dict(),
         in_ref=dict(mandatory=True, ),
         in_tst=dict(mandatory=True, ),
         out_file=dict(usedefault=True, ),
@@ -25,7 +21,6 @@ def test_FuzzyOverlap_outputs():
         class_fdi=dict(),
         class_fji=dict(),
         dice=dict(),
-        diff_file=dict(),
         jaccard=dict(),
     )
     outputs = FuzzyOverlap.output_spec()

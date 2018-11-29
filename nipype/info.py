@@ -11,7 +11,7 @@ import sys
 # full release.  '.dev' as a version_extra string means this is a development
 # version
 # Remove -dev for release
-__version__ = '1.0.1-dev'
+__version__ = '1.1.6-dev'
 
 
 def get_nipype_gitversion():
@@ -71,18 +71,18 @@ long_description = """========================================================
 NIPYPE: Neuroimaging in Python: Pipelines and Interfaces
 ========================================================
 
-Current neuroimaging software offer users an incredible opportunity to \
-analyze data using a variety of different algorithms. However, this has \
-resulted in a heterogeneous collection of specialized applications \
+Current neuroimaging software offer users an incredible opportunity to
+analyze data using a variety of different algorithms. However, this has
+resulted in a heterogeneous collection of specialized applications
 without transparent interoperability or a uniform operating interface.
 
-*Nipype*, an open-source, community-developed initiative under the \
-umbrella of NiPy_, is a Python project that provides a uniform interface \
-to existing neuroimaging software and facilitates interaction between \
-these packages within a single workflow. Nipype provides an environment \
-that encourages interactive exploration of algorithms from different \
-packages (e.g., AFNI, ANTS, BRAINS, BrainSuite, Camino, FreeSurfer, FSL, MNE, \
-MRtrix, MNE, Nipy, Slicer, SPM), eases the design of workflows within and \
+*Nipype*, an open-source, community-developed initiative under the
+umbrella of `NiPy <http://nipy.org>`_, is a Python project that provides a
+uniform interface to existing neuroimaging software and facilitates interaction
+between these packages within a single workflow. Nipype provides an environment
+that encourages interactive exploration of algorithms from different
+packages (e.g., AFNI, ANTS, BRAINS, BrainSuite, Camino, FreeSurfer, FSL, MNE,
+MRtrix, MNE, Nipy, Slicer, SPM), eases the design of workflows within and
 between packages, and reduces the learning curve necessary to use different \
 packages. Nipype is creating a collaborative platform for neuroimaging \
 software development in a high-level language and addressing limitations of \
@@ -101,14 +101,16 @@ existing pipeline systems.
 # versions
 NIBABEL_MIN_VERSION = '2.1.0'
 NETWORKX_MIN_VERSION = '1.9'
-NUMPY_MIN_VERSION = '1.9.0'
+# Numpy bug in python 3.7:
+# https://www.opensourceanswers.com/blog/you-shouldnt-use-python-37-for-data-science-right-now.html
+NUMPY_MIN_VERSION = '1.9.0' if sys.version_info < (3, 7) else '1.15.4'
 SCIPY_MIN_VERSION = '0.14'
 TRAITS_MIN_VERSION = '4.6'
 DATEUTIL_MIN_VERSION = '2.2'
 PYTEST_MIN_VERSION = '3.0'
 FUTURE_MIN_VERSION = '0.16.0'
 SIMPLEJSON_MIN_VERSION = '3.8.0'
-PROV_VERSION = '1.5.0'
+PROV_VERSION = '1.5.2'
 CLICK_MIN_VERSION = '6.6.0'
 PYDOT_MIN_VERSION = '1.2.3'
 
@@ -120,7 +122,6 @@ LONG_DESCRIPTION = long_description
 URL = 'http://nipy.org/nipype'
 DOWNLOAD_URL = 'http://github.com/nipy/nipype/archives/master'
 LICENSE = 'Apache License, 2.0'
-CLASSIFIERS = CLASSIFIERS
 AUTHOR = 'nipype developers'
 AUTHOR_EMAIL = 'neuroimaging@python.org'
 PLATFORMS = 'OS Independent'
@@ -140,34 +141,46 @@ REQUIRES = [
     'traits>=%s' % TRAITS_MIN_VERSION,
     'future>=%s' % FUTURE_MIN_VERSION,
     'simplejson>=%s' % SIMPLEJSON_MIN_VERSION,
-    'prov==%s' % PROV_VERSION,
+    'prov>=%s' % PROV_VERSION,
+    'neurdflib',
     'click>=%s' % CLICK_MIN_VERSION,
     'funcsigs',
     'pytest>=%s' % PYTEST_MIN_VERSION,
+    'pytest-xdist',
     'mock',
     'pydotplus',
     'pydot>=%s' % PYDOT_MIN_VERSION,
     'packaging',
+    'futures; python_version == "2.7"',
 ]
 
 if sys.version_info <= (3, 4):
     REQUIRES.append('configparser')
 
-TESTS_REQUIRES = ['pytest-cov', 'codecov']
+TESTS_REQUIRES = ['pytest-cov', 'codecov', 'pytest-env', 'coverage<5']
 
 EXTRA_REQUIRES = {
-    'doc': ['Sphinx>=1.4', 'matplotlib', 'pydotplus', 'pydot>=1.2.3'],
+    'doc': ['Sphinx>=1.4', 'numpydoc', 'matplotlib', 'pydotplus', 'pydot>=1.2.3'],
     'tests': TESTS_REQUIRES,
     'specs': ['yapf'],
-    'nipy': ['nitime', 'nilearn', 'dipy', 'nipy', 'matplotlib'],
+    'nipy': ['nitime', 'nilearn<0.5.0', 'dipy', 'nipy', 'matplotlib'],
     'profiler': ['psutil>=5.0'],
     'duecredit': ['duecredit'],
     'xvfbwrapper': ['xvfbwrapper'],
-    'pybids': ['pybids']
+    'pybids': ['pybids==0.6.5'],
+    'ssh': ['paramiko'],
     # 'mesh': ['mayavi']  # Enable when it works
 }
 
+
+def _list_union(iterable):
+    return list(set(sum(iterable, [])))
+
+
 # Enable a handle to install all extra dependencies at once
-EXTRA_REQUIRES['all'] = [val for _, val in list(EXTRA_REQUIRES.items())]
+EXTRA_REQUIRES['all'] = _list_union(EXTRA_REQUIRES.values())
+# dev = doc + tests + specs
+EXTRA_REQUIRES['dev'] = _list_union(val for key, val in EXTRA_REQUIRES.items()
+                                    if key in ('doc', 'tests', 'specs'))
 
 STATUS = 'stable'

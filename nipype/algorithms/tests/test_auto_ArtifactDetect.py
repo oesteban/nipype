@@ -7,12 +7,7 @@ def test_ArtifactDetect_inputs():
     input_map = dict(
         bound_by_brainmask=dict(usedefault=True, ),
         global_threshold=dict(usedefault=True, ),
-        ignore_exception=dict(
-            deprecated='1.0.0',
-            nohash=True,
-            usedefault=True,
-        ),
-        intersect_mask=dict(),
+        intersect_mask=dict(usedefault=True, ),
         mask_file=dict(),
         mask_threshold=dict(),
         mask_type=dict(mandatory=True, ),
