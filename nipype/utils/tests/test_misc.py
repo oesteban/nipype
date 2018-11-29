@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 # vi: set ft=python sts=4 ts=4 sw=4 et:
-from future import standard_library
-standard_library.install_aliases()
+from __future__ import print_function, unicode_literals
 
 import os
 from shutil import rmtree
-from builtins import next
-
 import pytest
+from future import standard_library
 
-from nipype.utils.misc import (container_to_string, str2bool, flatten,
-                               unflatten)
+from nipype.utils.misc import (container_to_string, str2bool,
+                               flatten, unflatten)
+
+standard_library.install_aliases()
 
 
 def test_cont_to_str():
